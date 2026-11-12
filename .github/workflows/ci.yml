@@ -15,7 +15,6 @@ jobs:
       NEON_DB_URL: postgresql://user:pass@127.0.0.1:5432/rag
       UPSTASH_REDIS_REST_URL: https://example.upstash.io
       UPSTASH_REDIS_REST_TOKEN: test
-      RAG_API_KEY: test
       STRICT_STARTUP: "false"
       LANGSMITH_TRACING: "false"
     steps:
