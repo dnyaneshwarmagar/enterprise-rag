@@ -12,7 +12,7 @@
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:dnyaneshwarmagar/enterprise-rag:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": "repo:dnyaneshwarmagar@89983890/enterprise-rag@1455678506:ref:refs/heads/main"
         }
       }
     }
