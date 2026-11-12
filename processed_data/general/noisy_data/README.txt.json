@@ -1,0 +1,16 @@
+{
+  "filename": "README.txt",
+  "relative_path": "noisy_data/README.txt",
+  "source_type": "general",
+  "document_key": "general/noisy_data/README.txt",
+  "access_roles": [
+    "employee"
+  ],
+  "chunks": [
+    {
+      "text": "Generated synthetic noise dataset files inspired by academic PDF titles.\n\nIncluded formats:\n- TXT\n- HTML\n- DOCX\n- PPTX\n\nThe content is intentionally random and suitable for:\n- testing parsers\n- indexing systems\n- search experiments\n- document ingestion pipelines\n- storage/load simulations",
+      "page_start": null,
+      "page_end": null
+    }
+  ]
+}

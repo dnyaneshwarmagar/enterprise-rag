@@ -1,0 +1,13 @@
+{
+  "default_roles": ["employee"],
+  "rules": [
+    {
+      "match": "restricted/*",
+      "roles": ["hr", "manager"]
+    },
+    {
+      "match": "*/restricted/*",
+      "roles": ["hr", "manager"]
+    }
+  ]
+}

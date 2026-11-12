@@ -1,0 +1,14 @@
+[Unit]
+Description=Enterprise RAG API
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/enterprise-rag
+EnvironmentFile=/opt/enterprise-rag/.env
+ExecStart=/opt/enterprise-rag/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

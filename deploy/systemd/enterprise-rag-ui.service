@@ -1,0 +1,14 @@
+[Unit]
+Description=Enterprise RAG UI
+After=network.target enterprise-rag-api.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/enterprise-rag
+EnvironmentFile=/opt/enterprise-rag/.env
+ExecStart=/opt/enterprise-rag/venv/bin/streamlit run ui/app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
