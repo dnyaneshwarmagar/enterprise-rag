@@ -56,6 +56,8 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.image }}:main
             ${{ steps.meta.outputs.image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=app
           cache-to: type=gha,mode=max,scope=app
 
@@ -68,23 +70,32 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.evals_image }}:main
             ${{ steps.meta.outputs.evals_image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=evals
           cache-to: type=gha,mode=max,scope=evals
 
-      # GHCR packages default to private; EC2 pulls anonymously.
-      # Use /users/{owner}/... — GITHUB_TOKEN is not the package "user" for /user/...
+      # Link packages to this public repo, then set visibility=public.
+      # GITHUB_TOKEN often cannot flip visibility (404); deploy still proceeds.
       - name: Make GHCR packages public
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -eu
+          set -u
           owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          repo_id=$(gh api "/repos/${{ github.repository }}" --jq .id)
+          echo "repo_id=${repo_id}"
+          gh api "/users/${owner}/packages?package_type=container" --jq '.[].name' || true
           for pkg in enterprise-rag enterprise-rag-evals; do
-            echo "Setting ${owner}/${pkg} visibility=public"
+            echo "Link + public: ${owner}/${pkg}"
+            gh api --method PUT \
+              -H "Accept: application/vnd.github+json" \
+              "/users/${owner}/packages/container/${pkg}/package_links/${repo_id}" || true
             gh api --method PUT \
               -H "Accept: application/vnd.github+json" \
               "/users/${owner}/packages/container/${pkg}/visibility" \
-              -f visibility=public
+              -f visibility=public || true
           done
 
   deploy:
