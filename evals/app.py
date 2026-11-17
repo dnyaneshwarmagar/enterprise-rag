@@ -359,13 +359,12 @@ with tab3:
     else:
         st.markdown(
             "Runs all **6 metric experiments** on the stored responses. "
-            "LLM-based metrics use `JUDGE_OPENAI_API_KEY` — samples are scored one at a time "
-            "with 40s cooldowns between samples as a conservative rate-limit buffer. "
-            "Total runtime: ~50 min."
+            "LLM judge uses Portkey `PORTKEY_FALLBACK_SLUG` (Groq); embeddings use Jina. "
+            "Samples are scored one at a time with cooldowns as a rate-limit buffer."
         )
         st.info(
-            "Token key used: `JUDGE_OPENAI_API_KEY` (separate from production key). "
-            "Each sample is processed individually to stay within OpenAI rate limits.",
+            "Judge route: Portkey fallback slug → Groq. Embeddings: Jina API. "
+            "No OpenAI judge key required for Step 3.",
             icon="ℹ️",
         )
 

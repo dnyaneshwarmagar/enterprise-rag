@@ -84,6 +84,26 @@ def get_async_openai_client(feature: str = "rag") -> AsyncOpenAI:
     )
 
 
+def judge_portkey_model() -> str:
+    """Portkey model id for RAGAS judge calls — uses the fallback (Groq backup) slug."""
+    return portkey_model(slug=settings.PORTKEY_FALLBACK_SLUG)
+
+
+def get_async_judge_client() -> AsyncOpenAI:
+    """
+    Async OpenAI-compatible client for RAGAS metrics via Portkey fallback slug (Groq).
+    Avoids spending OPENAI_API_KEY / JUDGE_OPENAI_API_KEY on eval runs.
+    """
+    return wrap_openai(
+        AsyncOpenAI(
+            api_key=settings.PORTKEY_API_KEY,
+            base_url=PORTKEY_GATEWAY_URL,
+            default_headers=_make_headers("ragas-judge"),
+        ),
+        chat_name="Groq RAGAS judge",
+    )
+
+
 def extract_cache_status(response) -> str:
     """
     Pull x-portkey-cache-status from the response.

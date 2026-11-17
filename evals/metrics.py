@@ -1,17 +1,15 @@
 """
 Phase 2 — RAGAS + Tool Correctness metrics.
-Uses a dedicated OpenAI judge key so production OPENAI_API_KEY is never exhausted by eval runs.
+Judge LLM goes through Portkey PORTKEY_FALLBACK_SLUG (Groq backup).
+Embeddings use the existing Jina API (no local sentence-transformers, no OpenAI).
 All LLM-based metrics run one sample at a time with short cooldowns between sub-batches
 and experiments as a conservative rate-limit buffer.
 Contexts are truncated to 300 chars (2 chunks max) so no single request exceeds the limit.
 """
 
 import asyncio
-import os
 
 import pandas as pd
-from langchain_openai import OpenAIEmbeddings
-from openai import AsyncOpenAI
 from ragas.embeddings import LangchainEmbeddingsWrapper
 from ragas.llms import llm_factory
 from ragas.metrics.collections import (
@@ -22,11 +20,10 @@ from ragas.metrics.collections import (
     Faithfulness,
 )
 
+from app.gateway import get_async_judge_client, judge_portkey_model
 from app.observe import info, span
+from app.services.retrieval.embedding import embed_query, embed_texts
 
-OPENAI_BASE_URL = "https://api.openai.com/v1"
-JUDGE_MODEL = "gpt-5-mini"
-EMBEDDING_MODEL = "text-embedding-3-small"
 COOLDOWN_STANDARD = 62
 COOLDOWN_MINI = 40  # between individual samples — conservative rate-limit buffer
 GENERAL_BATCH_SIZE = 1  # one sample at a time: abatch_score fires calls concurrently per sample,
@@ -35,15 +32,21 @@ CONTEXT_TRUNCATE = 300  # chars per context chunk — reduces single request tok
 CONTEXT_LIMIT = 2  # number of context chunks passed to RAGAS per sample
 
 
+class _JinaEmbeddings:
+    """Minimal LangChain-compatible embeddings using the app's Jina API helpers."""
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return embed_texts(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        return embed_query(text)
+
+
 def _build_judge():
-    # Prefer a dedicated judge key so prod chat traffic is not rate-limited by evals.
-    api_key = os.getenv("JUDGE_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-    client = AsyncOpenAI(api_key=api_key, base_url=OPENAI_BASE_URL)
-    llm = llm_factory(JUDGE_MODEL, provider="openai", client=client)
-    # OpenAI API embeddings — avoids downloading sentence-transformers on t3.micro.
-    embeddings = LangchainEmbeddingsWrapper(
-        OpenAIEmbeddings(model=EMBEDDING_MODEL, api_key=api_key, base_url=OPENAI_BASE_URL)
-    )
+    # Groq via Portkey fallback slug — same gateway as prod, separate provider virtual key.
+    client = get_async_judge_client()
+    llm = llm_factory(judge_portkey_model(), provider="openai", client=client)
+    embeddings = LangchainEmbeddingsWrapper(_JinaEmbeddings())
     return llm, embeddings
 
 
