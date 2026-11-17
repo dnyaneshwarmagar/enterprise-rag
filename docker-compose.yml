@@ -1,17 +1,21 @@
 # Enterprise RAG — Docker Compose (API + chat + evals + nginx)
 #
-# Local:
+# Local (build on this machine):
 #   docker compose up --build -d
-#   open http://localhost/  http://localhost/evals/  http://localhost/api/health
 #
-# EC2: deploy/remote-update.sh builds and restarts these services.
+# EC2 (image built in GitHub Actions, pushed to GHCR):
+#   ENTERPRISE_RAG_IMAGE=ghcr.io/<owner>/enterprise-rag:<sha> docker compose pull
+#   docker compose up -d
 #
 # Secrets: host .env (never baked into the image).
 
+x-app: &app
+  image: ${ENTERPRISE_RAG_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag:main}
+
 services:
   api:
+    <<: *app
     build: .
-    image: enterprise-rag:latest
     container_name: enterprise-rag-api
     env_file: .env
     environment:
@@ -29,7 +33,7 @@ services:
       start_period: 40s
 
   ui:
-    image: enterprise-rag:latest
+    <<: *app
     container_name: enterprise-rag-ui
     depends_on:
       api:
@@ -55,7 +59,7 @@ services:
     restart: unless-stopped
 
   evals:
-    image: enterprise-rag:latest
+    <<: *app
     container_name: enterprise-rag-evals
     depends_on:
       api:
