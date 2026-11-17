@@ -9,6 +9,15 @@ ECR_REGISTRY="${ECR_REGISTRY:-815398003681.dkr.ecr.us-east-1.amazonaws.com}"
 cd /opt/enterprise-rag
 export GIT_SSH_COMMAND="ssh -i /home/ubuntu/.ssh/github_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
 git fetch origin main
+# If this script changed on main, re-exec the new file (bash keeps the old inode otherwise).
+if ! git diff --quiet HEAD origin/main -- deploy/remote-update.sh; then
+  git reset --hard origin/main
+  exec env \
+    ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-}" \
+    ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-}" \
+    AWS_REGION="${AWS_REGION:-us-east-1}" \
+    bash /opt/enterprise-rag/deploy/remote-update.sh
+fi
 git reset --hard origin/main
 
 if ! command -v docker >/dev/null 2>&1; then
