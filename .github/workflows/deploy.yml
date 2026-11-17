@@ -71,6 +71,20 @@ jobs:
           cache-from: type=gha,scope=evals
           cache-to: type=gha,mode=max,scope=evals
 
+      # GHCR packages default to private; EC2 pulls anonymously.
+      - name: Make GHCR packages public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          for pkg in enterprise-rag enterprise-rag-evals; do
+            echo "Setting ${pkg} visibility=public"
+            gh api --method PUT \
+              -H "Accept: application/vnd.github+json" \
+              "/user/packages/container/${pkg}/visibility" \
+              -f visibility=public
+          done
+
   deploy:
     needs: publish
     runs-on: ubuntu-latest
