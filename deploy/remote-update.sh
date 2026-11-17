@@ -23,17 +23,14 @@ chmod 600 .env 2>/dev/null || true
 export ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag:main}"
 export ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag-evals:main}"
 
-# Optional login for private GHCR packages (public packages need no token).
-if [[ -f .env ]]; then
-  # shellcheck disable=SC1091
-  set -a
-  # Only load GHCR-related vars; full .env may contain spaces/special chars.
+# Login for private GHCR packages.
+# Prefer env from Actions (short-lived GITHUB_TOKEN); else optional .env PAT.
+if [[ -z "${GHCR_TOKEN:-}" && -f .env ]]; then
   GHCR_TOKEN="$(grep -E '^GHCR_TOKEN=' .env | tail -n1 | cut -d= -f2- | tr -d '\r' || true)"
   GHCR_USER="$(grep -E '^GHCR_USER=' .env | tail -n1 | cut -d= -f2- | tr -d '\r' || true)"
-  set +a
 fi
 if [[ -n "${GHCR_TOKEN:-}" ]]; then
-  echo "${GHCR_TOKEN}" | sudo docker login ghcr.io -u "${GHCR_USER:-$(whoami)}" --password-stdin
+  echo "${GHCR_TOKEN}" | sudo docker login ghcr.io -u "${GHCR_USER:-github}" --password-stdin
 fi
 
 echo "Pulling ${ENTERPRISE_RAG_IMAGE}"

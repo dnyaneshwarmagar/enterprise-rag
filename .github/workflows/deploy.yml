@@ -85,12 +85,17 @@ jobs:
         env:
           IMAGE: ${{ needs.publish.outputs.image }}:${{ github.sha }}
           EVALS_IMAGE: ${{ needs.publish.outputs.evals_image }}:${{ github.sha }}
+          # Short-lived token so EC2 can pull private GHCR packages during this job.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
         run: |
           set -eu
           image_q=$(printf '%q' "$IMAGE")
           evals_q=$(printf '%q' "$EVALS_IMAGE")
+          token_q=$(printf '%q' "$GHCR_TOKEN")
+          user_q=$(printf '%q' "$GHCR_USER")
           cat > /tmp/ssm.json <<EOF
-          {"commands":["sudo -u ubuntu env ENTERPRISE_RAG_IMAGE=${image_q} ENTERPRISE_RAG_EVALS_IMAGE=${evals_q} bash /opt/enterprise-rag/deploy/remote-update.sh"]}
+          {"commands":["sudo -u ubuntu env ENTERPRISE_RAG_IMAGE=${image_q} ENTERPRISE_RAG_EVALS_IMAGE=${evals_q} GHCR_TOKEN=${token_q} GHCR_USER=${user_q} bash /opt/enterprise-rag/deploy/remote-update.sh"]}
           EOF
           command_id=$(aws ssm send-command \
             --instance-ids i-07a586aa1312f97c3 \
