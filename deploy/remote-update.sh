@@ -57,6 +57,10 @@ sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
 sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
   ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
   docker compose up -d --remove-orphans --no-build
+# Nginx caches upstream IPs; recreate so it sees new api/ui/evals containers.
+sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
+  ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+  docker compose up -d --force-recreate --no-deps nginx
 sudo docker image prune -f >/dev/null 2>&1 || true
 
 for _ in $(seq 1 60); do
