@@ -2,16 +2,17 @@
 # One-time Docker setup for a fresh Ubuntu t3.micro. Run on the instance:
 #   REPO_URL=https://github.com/<you>/<repo>.git bash deploy/bootstrap-ec2.sh
 #
-# Prefers pulling a pre-built GHCR image (no heavy build on t3.micro).
+# Prefers pulling pre-built GHCR images (no heavy build on t3.micro).
 # After bootstrap (security group must allow TCP 80):
 #   http://<public-ip>/           chat UI
-#   http://<public-ip>/evals/     evals UI
+#   http://<public-ip>/evals/     evals UI (RAGAS Step 3 in enterprise-rag-evals image)
 #   http://<public-ip>/api/health FastAPI
 set -euo pipefail
 
 APP_DIR=/opt/enterprise-rag
 REPO_URL="${REPO_URL:?Set REPO_URL to the GitHub clone URL}"
 ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag:main}"
+ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag-evals:main}"
 
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl git
@@ -51,10 +52,15 @@ if [[ -n "${GHCR_TOKEN:-}" ]]; then
   echo "${GHCR_TOKEN}" | sudo docker login ghcr.io -u "${GHCR_USER:-$(whoami)}" --password-stdin
 fi
 
-export ENTERPRISE_RAG_IMAGE
-echo "Pulling ${ENTERPRISE_RAG_IMAGE} (set ENTERPRISE_RAG_IMAGE to override)"
+export ENTERPRISE_RAG_IMAGE ENTERPRISE_RAG_EVALS_IMAGE
+echo "Pulling ${ENTERPRISE_RAG_IMAGE}"
 sudo docker pull "${ENTERPRISE_RAG_IMAGE}"
-sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" docker compose up -d --remove-orphans --no-build
+echo "Pulling ${ENTERPRISE_RAG_EVALS_IMAGE}"
+sudo docker pull "${ENTERPRISE_RAG_EVALS_IMAGE}"
+sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
+  ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+  docker compose up -d --remove-orphans --no-build
 
 echo "Bootstrap done. Open security group port 80, then visit http://<public-ip>/"
-echo "If the GHCR package is private, set GHCR_TOKEN (read:packages) in the environment or .env."
+echo "Set JUDGE_OPENAI_API_KEY (or OPENAI_API_KEY) in .env for RAGAS Step 3."
+echo "If a GHCR package is private, set GHCR_TOKEN (read:packages) in the environment or .env."

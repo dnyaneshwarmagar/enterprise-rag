@@ -1,6 +1,7 @@
-# Optional extras for the evals Streamlit UI (Step 3 RAGAS metrics).
+# Extras for the evals Streamlit UI (Step 3 RAGAS metrics).
 # Pipeline + guardrails work with requirements-prod.txt alone.
-# On EC2: ./venv/bin/pip install --no-cache-dir -r requirements-evals.txt
+# Installed in Dockerfile.evals / ghcr.io/.../enterprise-rag-evals (not the app image).
+# Local without Docker: pip install -r requirements-evals.txt
 pandas>=2.0.0
 nest-asyncio>=1.6.0
 openai>=1.0.0

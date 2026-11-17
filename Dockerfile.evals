@@ -1,0 +1,33 @@
+# Evals image: production deps + RAGAS extras (Step 3 metrics).
+# Built in GitHub Actions and pulled on EC2 — do not build on t3.micro.
+FROM python:3.12-slim-bookworm
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-prod.txt requirements-evals.txt ./
+RUN pip install --upgrade pip \
+    && pip install -r requirements-prod.txt \
+    && pip install -r requirements-evals.txt
+
+COPY access_policy.json ./
+COPY app/ ./app/
+COPY ui/ ./ui/
+COPY evals/ ./evals/
+COPY .streamlit/ ./.streamlit/
+
+EXPOSE 8502
+
+CMD ["streamlit", "run", "evals/app.py", "--server.port", "8502", "--server.address", "0.0.0.0", "--server.headless", "true", "--server.baseUrlPath", "evals"]

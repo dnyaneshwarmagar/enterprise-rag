@@ -36,7 +36,8 @@ def _run_all_metrics(*args, **kwargs):
         from evals.metrics import run_all_metrics
     except ImportError as exc:
         raise ImportError(
-            "RAGAS metrics require extras. On the server run: "
+            "RAGAS metrics require the evals image (Dockerfile.evals / "
+            "ghcr.io/.../enterprise-rag-evals). Locally: "
             "pip install -r requirements-evals.txt"
         ) from exc
     return run_all_metrics(*args, **kwargs)

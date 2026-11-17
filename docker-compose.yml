@@ -1,11 +1,12 @@
 # Enterprise RAG — Docker Compose (API + chat + evals + nginx)
 #
-# Local (build on this machine):
+# Local:
 #   docker compose up --build -d
 #
-# EC2 (image built in GitHub Actions, pushed to GHCR):
-#   ENTERPRISE_RAG_IMAGE=ghcr.io/<owner>/enterprise-rag:<sha> docker compose pull
-#   docker compose up -d
+# EC2 (images built in GitHub Actions, pushed to GHCR):
+#   ENTERPRISE_RAG_IMAGE=ghcr.io/<owner>/enterprise-rag:<sha> \
+#   ENTERPRISE_RAG_EVALS_IMAGE=ghcr.io/<owner>/enterprise-rag-evals:<sha> \
+#     docker compose up -d --no-build
 #
 # Secrets: host .env (never baked into the image).
 
@@ -59,7 +60,10 @@ services:
     restart: unless-stopped
 
   evals:
-    <<: *app
+    image: ${ENTERPRISE_RAG_EVALS_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag-evals:main}
+    build:
+      context: .
+      dockerfile: Dockerfile.evals
     container_name: enterprise-rag-evals
     depends_on:
       api:

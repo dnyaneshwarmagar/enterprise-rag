@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Pull main + pull pre-built GHCR image, then restart Compose.
-# Called by GitHub Actions over SSM with ENTERPRISE_RAG_IMAGE set.
+# Pull main + pull pre-built GHCR images (app + evals), then restart Compose.
+# Called by GitHub Actions over SSM with ENTERPRISE_RAG_IMAGE / ENTERPRISE_RAG_EVALS_IMAGE set.
 set -euo pipefail
 
 cd /opt/enterprise-rag
@@ -19,8 +19,9 @@ sudo systemctl disable --now enterprise-rag-api enterprise-rag-ui enterprise-rag
 mkdir -p processed_data
 chmod 600 .env 2>/dev/null || true
 
-# Default image if Actions did not pass one.
+# Default images if Actions did not pass them.
 export ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag:main}"
+export ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag-evals:main}"
 
 # Optional login for private GHCR packages (public packages need no token).
 if [[ -f .env ]]; then
@@ -37,23 +38,40 @@ fi
 
 echo "Pulling ${ENTERPRISE_RAG_IMAGE}"
 sudo docker pull "${ENTERPRISE_RAG_IMAGE}"
-# Retag so compose services that share the image name stay consistent when
-# compose file also references build context locally.
-sudo docker tag "${ENTERPRISE_RAG_IMAGE}" enterprise-rag:latest || true
+echo "Pulling ${ENTERPRISE_RAG_EVALS_IMAGE}"
+sudo docker pull "${ENTERPRISE_RAG_EVALS_IMAGE}"
 
-sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" docker compose pull || true
-sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" docker compose up -d --remove-orphans --no-build
+sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
+  ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+  docker compose pull || true
+sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
+  ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+  docker compose up -d --remove-orphans --no-build
 sudo docker image prune -f >/dev/null 2>&1 || true
 
 for _ in $(seq 1 60); do
   if curl --fail --silent http://127.0.0.1/api/health >/dev/null; then
     echo
-    sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" docker compose ps
+    sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
+      ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+      docker compose ps
+    # Smoke: RAGAS import inside the evals image (Step 3 deps).
+    if sudo docker exec enterprise-rag-evals python -c "from evals.metrics import run_all_metrics; print('ragas_ok')" 2>/dev/null; then
+      echo "RAGAS import OK in enterprise-rag-evals"
+    else
+      echo "WARN: RAGAS import failed inside evals container" >&2
+      sudo docker logs --tail=40 enterprise-rag-evals || true
+      exit 1
+    fi
     exit 0
   fi
   sleep 5
 done
 
-sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" docker compose ps || true
-sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" docker compose logs --tail=80 api nginx || true
+sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
+  ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+  docker compose ps || true
+sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
+  ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+  docker compose logs --tail=80 api evals nginx || true
 exit 1
