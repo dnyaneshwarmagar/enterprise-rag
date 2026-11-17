@@ -15,7 +15,12 @@ import streamlit as st
 
 from app.observe import span
 
-nest_asyncio.apply()
+try:
+    nest_asyncio.apply()
+except ValueError:
+    # Production Streamlit/uvicorn may use uvloop, which nest_asyncio cannot patch.
+    pass
+
 
 from evals.guardrails_eval import compute_guardrails_metrics, run_guardrails_eval
 from evals.pipeline import load_golden_dataset, run_pipeline
