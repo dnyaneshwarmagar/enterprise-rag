@@ -2,7 +2,8 @@
 # One-time Docker setup for a fresh Ubuntu t3.micro. Run on the instance:
 #   REPO_URL=https://github.com/<you>/<repo>.git bash deploy/bootstrap-ec2.sh
 #
-# Prefers pulling pre-built GHCR images (no heavy build on t3.micro).
+# Prefers pulling pre-built ECR images (no heavy build on t3.micro).
+# Instance role enterprise-rag-ec2 must allow ecr:GetAuthorizationToken + pull.
 # After bootstrap (security group must allow TCP 80):
 #   http://<public-ip>/           chat UI
 #   http://<public-ip>/evals/     evals UI (RAGAS Step 3 in enterprise-rag-evals image)
@@ -10,12 +11,14 @@
 set -euo pipefail
 
 APP_DIR=/opt/enterprise-rag
+AWS_REGION="${AWS_REGION:-us-east-1}"
+ECR_REGISTRY="${ECR_REGISTRY:-815398003681.dkr.ecr.us-east-1.amazonaws.com}"
 REPO_URL="${REPO_URL:?Set REPO_URL to the GitHub clone URL}"
-ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag:main}"
-ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag-evals:main}"
+ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-${ECR_REGISTRY}/enterprise-rag:main}"
+ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-${ECR_REGISTRY}/enterprise-rag-evals:main}"
 
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl git
+sudo apt-get install -y ca-certificates curl git unzip
 
 if ! swapon --show | grep -q .; then
   sudo fallocate -l 2G /swapfile
@@ -30,6 +33,12 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 sudo usermod -aG docker "$USER" || true
 sudo systemctl enable --now docker
+
+if ! command -v aws >/dev/null 2>&1; then
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  unzip -q /tmp/awscliv2.zip -d /tmp
+  sudo /tmp/aws/install
+fi
 
 if [[ ! -d "${APP_DIR}/.git" ]]; then
   sudo mkdir -p "${APP_DIR}"
@@ -48,9 +57,8 @@ mkdir -p processed_data
 
 sudo systemctl disable --now enterprise-rag-api enterprise-rag-ui enterprise-rag-evals nginx 2>/dev/null || true
 
-if [[ -n "${GHCR_TOKEN:-}" ]]; then
-  echo "${GHCR_TOKEN}" | sudo docker login ghcr.io -u "${GHCR_USER:-$(whoami)}" --password-stdin
-fi
+aws ecr get-login-password --region "${AWS_REGION}" \
+  | sudo docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
 export ENTERPRISE_RAG_IMAGE ENTERPRISE_RAG_EVALS_IMAGE
 echo "Pulling ${ENTERPRISE_RAG_IMAGE}"
@@ -62,5 +70,4 @@ sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
   docker compose up -d --remove-orphans --no-build
 
 echo "Bootstrap done. Open security group port 80, then visit http://<public-ip>/"
-echo "Set JUDGE_OPENAI_API_KEY (or OPENAI_API_KEY) in .env for RAGAS Step 3."
-echo "If a GHCR package is private, set GHCR_TOKEN (read:packages) in the environment or .env."
+echo "RAGAS Step 3 uses Portkey PORTKEY_FALLBACK_SLUG (Groq) + Jina embeddings."

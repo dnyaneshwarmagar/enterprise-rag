@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Pull main + pull pre-built GHCR images (app + evals), then restart Compose.
+# Pull main + pull pre-built ECR images (app + evals), then restart Compose.
 # Called by GitHub Actions over SSM with ENTERPRISE_RAG_IMAGE / ENTERPRISE_RAG_EVALS_IMAGE set.
 set -euo pipefail
+
+AWS_REGION="${AWS_REGION:-us-east-1}"
+ECR_REGISTRY="${ECR_REGISTRY:-815398003681.dkr.ecr.us-east-1.amazonaws.com}"
 
 cd /opt/enterprise-rag
 export GIT_SSH_COMMAND="ssh -i /home/ubuntu/.ssh/github_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
@@ -20,18 +23,19 @@ mkdir -p processed_data
 chmod 600 .env 2>/dev/null || true
 
 # Default images if Actions did not pass them.
-export ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag:main}"
-export ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag-evals:main}"
+export ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-${ECR_REGISTRY}/enterprise-rag:main}"
+export ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-${ECR_REGISTRY}/enterprise-rag-evals:main}"
 
-# Login for private GHCR packages.
-# Prefer env from Actions (short-lived GITHUB_TOKEN); else optional .env PAT.
-if [[ -z "${GHCR_TOKEN:-}" && -f .env ]]; then
-  GHCR_TOKEN="$(grep -E '^GHCR_TOKEN=' .env | tail -n1 | cut -d= -f2- | tr -d '\r' || true)"
-  GHCR_USER="$(grep -E '^GHCR_USER=' .env | tail -n1 | cut -d= -f2- | tr -d '\r' || true)"
+# ECR login via instance role (enterprise-rag-ec2 / ecr-pull).
+if ! command -v aws >/dev/null 2>&1; then
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  sudo apt-get update -y
+  sudo apt-get install -y unzip
+  unzip -q /tmp/awscliv2.zip -d /tmp
+  sudo /tmp/aws/install
 fi
-if [[ -n "${GHCR_TOKEN:-}" ]]; then
-  echo "${GHCR_TOKEN}" | sudo docker login ghcr.io -u "${GHCR_USER:-github}" --password-stdin
-fi
+aws ecr get-login-password --region "${AWS_REGION}" \
+  | sudo docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
 echo "Pulling ${ENTERPRISE_RAG_IMAGE}"
 sudo docker pull "${ENTERPRISE_RAG_IMAGE}"

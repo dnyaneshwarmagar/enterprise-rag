@@ -3,15 +3,15 @@
 # Local:
 #   docker compose up --build -d
 #
-# EC2 (images built in GitHub Actions, pushed to GHCR):
-#   ENTERPRISE_RAG_IMAGE=ghcr.io/<owner>/enterprise-rag:<sha> \
-#   ENTERPRISE_RAG_EVALS_IMAGE=ghcr.io/<owner>/enterprise-rag-evals:<sha> \
+# EC2 (images built in GitHub Actions, pushed to ECR):
+#   ENTERPRISE_RAG_IMAGE=…/enterprise-rag:<sha> \
+#   ENTERPRISE_RAG_EVALS_IMAGE=…/enterprise-rag-evals:<sha> \
 #     docker compose up -d --no-build
 #
 # Secrets: host .env (never baked into the image).
 
 x-app: &app
-  image: ${ENTERPRISE_RAG_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag:main}
+  image: ${ENTERPRISE_RAG_IMAGE:-815398003681.dkr.ecr.us-east-1.amazonaws.com/enterprise-rag:main}
 
 services:
   api:
@@ -60,7 +60,7 @@ services:
     restart: unless-stopped
 
   evals:
-    image: ${ENTERPRISE_RAG_EVALS_IMAGE:-ghcr.io/dnyaneshwarmagar/enterprise-rag-evals:main}
+    image: ${ENTERPRISE_RAG_EVALS_IMAGE:-815398003681.dkr.ecr.us-east-1.amazonaws.com/enterprise-rag-evals:main}
     build:
       context: .
       dockerfile: Dockerfile.evals

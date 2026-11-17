@@ -7,11 +7,12 @@ on:
 permissions:
   id-token: write
   contents: read
-  packages: write
 
 env:
-  # GHCR requires lowercase image names
-  REGISTRY: ghcr.io
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 815398003681.dkr.ecr.us-east-1.amazonaws.com
+  ECR_APP_REPO: enterprise-rag
+  ECR_EVALS_REPO: enterprise-rag-evals
 
 jobs:
   test:
@@ -26,23 +27,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::815398003681:role/enterprise-rag-github
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Image names
         id: meta
         run: |
           set -eu
-          owner_repo=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          image="${{ env.REGISTRY }}/${owner_repo}"
-          evals_image="${{ env.REGISTRY }}/${owner_repo}-evals"
+          image="${{ env.ECR_REGISTRY }}/${{ env.ECR_APP_REPO }}"
+          evals_image="${{ env.ECR_REGISTRY }}/${{ env.ECR_EVALS_REPO }}"
           echo "image=${image}" >> "$GITHUB_OUTPUT"
           echo "evals_image=${evals_image}" >> "$GITHUB_OUTPUT"
           echo "Pushing ${image} and ${evals_image} (:main + :${{ github.sha }})"
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -75,29 +77,6 @@ jobs:
           cache-from: type=gha,scope=evals
           cache-to: type=gha,mode=max,scope=evals
 
-      # Link packages to this public repo, then set visibility=public.
-      # GITHUB_TOKEN often cannot flip visibility (404); deploy still proceeds.
-      - name: Make GHCR packages public
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -u
-          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          repo_id=$(gh api "/repos/${{ github.repository }}" --jq .id)
-          echo "repo_id=${repo_id}"
-          gh api "/users/${owner}/packages?package_type=container" --jq '.[].name' || true
-          for pkg in enterprise-rag enterprise-rag-evals; do
-            echo "Link + public: ${owner}/${pkg}"
-            gh api --method PUT \
-              -H "Accept: application/vnd.github+json" \
-              "/users/${owner}/packages/container/${pkg}/package_links/${repo_id}" || true
-            gh api --method PUT \
-              -H "Accept: application/vnd.github+json" \
-              "/users/${owner}/packages/container/${pkg}/visibility" \
-              -f visibility=public || true
-          done
-
   deploy:
     needs: publish
     runs-on: ubuntu-latest
@@ -106,29 +85,24 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::815398003681:role/enterprise-rag-github
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Pull images on EC2 and restart Compose
         env:
           IMAGE: ${{ needs.publish.outputs.image }}:${{ github.sha }}
           EVALS_IMAGE: ${{ needs.publish.outputs.evals_image }}:${{ github.sha }}
-          # Short-lived token so EC2 can pull private GHCR packages during this job.
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
         run: |
           set -eu
           image_q=$(printf '%q' "$IMAGE")
           evals_q=$(printf '%q' "$EVALS_IMAGE")
-          token_q=$(printf '%q' "$GHCR_TOKEN")
-          user_q=$(printf '%q' "$GHCR_USER")
           cat > /tmp/ssm.json <<EOF
-          {"commands":["sudo -u ubuntu env ENTERPRISE_RAG_IMAGE=${image_q} ENTERPRISE_RAG_EVALS_IMAGE=${evals_q} GHCR_TOKEN=${token_q} GHCR_USER=${user_q} bash /opt/enterprise-rag/deploy/remote-update.sh"]}
+          {"commands":["sudo -u ubuntu env ENTERPRISE_RAG_IMAGE=${image_q} ENTERPRISE_RAG_EVALS_IMAGE=${evals_q} bash /opt/enterprise-rag/deploy/remote-update.sh"]}
           EOF
           command_id=$(aws ssm send-command \
             --instance-ids i-07a586aa1312f97c3 \
             --document-name AWS-RunShellScript \
             --timeout-seconds 1200 \
-            --comment "deploy main (compose pull app+evals)" \
+            --comment "deploy main (ECR compose pull)" \
             --parameters file:///tmp/ssm.json \
             --query Command.CommandId --output text)
           echo "command=$command_id image=$IMAGE evals=$EVALS_IMAGE"

@@ -13,6 +13,31 @@
       "Effect": "Allow",
       "Action": ["ssm:GetCommandInvocation"],
       "Resource": "arn:aws:ssm:us-east-1:815398003681:*"
+    },
+    {
+      "Sid": "EcrAuth",
+      "Effect": "Allow",
+      "Action": ["ecr:GetAuthorizationToken"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcrPush",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:CompleteLayerUpload",
+        "ecr:InitiateLayerUpload",
+        "ecr:PutImage",
+        "ecr:UploadLayerPart",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:DescribeRepositories",
+        "ecr:CreateRepository"
+      ],
+      "Resource": [
+        "arn:aws:ecr:us-east-1:815398003681:repository/enterprise-rag",
+        "arn:aws:ecr:us-east-1:815398003681:repository/enterprise-rag-evals"
+      ]
     }
   ]
 }
