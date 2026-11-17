@@ -52,19 +52,47 @@ AUDIENCE_LABELS = {
 }
 
 
-def _document_admin_enabled() -> bool:
-    """True only when `.env` currently sets DOCUMENT_ADMIN_ENABLED to true.
+MANAGER_USERNAME = "admin"
+MANAGER_PASSWORD = "admin"
+
+
+def _env_flag(name: str) -> bool:
+    """True when `.env` currently sets the named flag to true/1/yes.
 
     Read the file on every run. `load_dotenv` does not replace a value the
     process already loaded, so editing `.env` would otherwise leave the
-    buttons enabled.
+    UI out of date.
     """
-    raw = dotenv_values(env_path).get("DOCUMENT_ADMIN_ENABLED")
+    raw = dotenv_values(env_path).get(name)
     return str(raw or "").strip().lower() in {"1", "true", "yes"}
+
+
+def _document_admin_enabled() -> bool:
+    return _env_flag("DOCUMENT_ADMIN_ENABLED")
 
 
 def _backend_url() -> str:
     return os.getenv("BACKEND_URL", "http://localhost:8000")
+
+
+def _evals_url() -> str:
+    """Evals UI URL. Prefer EVALS_URL; otherwise /evals/ behind nginx."""
+    configured = os.getenv("EVALS_URL", "").strip()
+    if configured:
+        return configured if configured.endswith("/") else f"{configured}/"
+    return "/evals/"
+
+
+
+def _reset_manager_auth() -> None:
+    st.session_state.manager_authenticated = False
+
+
+def _on_demo_role_change() -> None:
+    _reset_chat()
+    if st.session_state.get("demo_role") != "manager":
+        _reset_manager_auth()
+
 
 
 def _api_headers() -> dict[str, str]:
@@ -358,6 +386,8 @@ if "demo_mode" not in st.session_state:
     st.session_state.demo_mode = "normal"
 if "pending_prompt" not in st.session_state:
     st.session_state.pending_prompt = None
+if "manager_authenticated" not in st.session_state:
+    st.session_state.manager_authenticated = False
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -369,14 +399,17 @@ with st.sidebar:
     if st.button("Normal demo", width="stretch", type=normal_type):
         if st.session_state.demo_mode != "normal":
             st.session_state.demo_mode = "normal"
+            _reset_manager_auth()
             _reset_chat()
             st.rerun()
     if st.button("RBAC demo", width="stretch", type=rbac_type):
         if st.session_state.demo_mode != "rbac":
             st.session_state.demo_mode = "rbac"
+            _reset_manager_auth()
             _reset_chat()
             st.rerun()
 
+    manager_locked = False
     if st.session_state.demo_mode == "normal":
         active_role = "employee"
         st.markdown("**You're an employee**")
@@ -384,11 +417,37 @@ with st.sidebar:
     else:
         if "demo_role" not in st.session_state or st.session_state.demo_role not in DEMO_ROLES:
             st.session_state.demo_role = "employee" if "employee" in DEMO_ROLES else DEMO_ROLES[0]
-        st.selectbox("Answer as", DEMO_ROLES, key="demo_role", on_change=_reset_chat)
+        st.selectbox("Answer as", DEMO_ROLES, key="demo_role", on_change=_on_demo_role_change)
         active_role = st.session_state.demo_role
         st.caption(_role_note(active_role) + " Switching role starts a fresh conversation.")
 
-    if st.session_state.demo_mode == "rbac" and active_role == "manager":
+        if active_role == "manager" and not st.session_state.manager_authenticated:
+            manager_locked = True
+            st.markdown("**Manager sign-in**")
+            st.caption("Username and password are both `admin` for this demo.")
+            with st.form("manager-login"):
+                username = st.text_input("Username", autocomplete="username")
+                password = st.text_input("Password", type="password", autocomplete="current-password")
+                submitted = st.form_submit_button("Sign in", type="primary", width="stretch")
+            if submitted:
+                if username.strip() == MANAGER_USERNAME and password == MANAGER_PASSWORD:
+                    st.session_state.manager_authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Wrong username or password.")
+        elif active_role == "manager":
+            st.success("Signed in as manager.")
+            st.link_button("Open evals", _evals_url(), type="primary", width="stretch")
+            if st.button("Sign out manager", width="stretch"):
+                _reset_manager_auth()
+                _reset_chat()
+                st.rerun()
+
+    if (
+        st.session_state.demo_mode == "rbac"
+        and active_role == "manager"
+        and st.session_state.manager_authenticated
+    ):
         with st.expander("Manage documents"):
             _render_document_admin(active_role)
 
@@ -399,6 +458,7 @@ with st.sidebar:
     with st.expander("Connection details"):
         st.write(LANGSMITH_STATUS)
         st.caption(f"Memory {st.session_state.session_id[:8]}")
+
 
 # --- HEADER ---
 mode_label = "Normal demo" if st.session_state.demo_mode == "normal" else "RBAC demo"
@@ -418,11 +478,13 @@ st.markdown(
 )
 
 pending = st.session_state.pending_prompt
-if not st.session_state.messages and not pending:
+if manager_locked:
+    st.info("Sign in as manager in the sidebar (username `admin`, password `admin`) to continue.")
+elif not st.session_state.messages and not pending:
     if _document_admin_enabled():
-        manage_step = "As a manager, open Manage documents and choose who should read the file. The same contents are kept only once."
+        manage_step = "Sign in as manager with admin / admin, then open Manage documents and choose who should read the file."
     else:
-        manage_step = "As a manager, open Manage documents. Adding and removing files is switched off for now."
+        manage_step = "Sign in as manager with admin / admin. Adding and removing files is switched off for now."
     st.markdown(
         f"""
         <p class="section-label">See it in three steps</p>
@@ -443,8 +505,12 @@ if not st.session_state.messages and not pending:
 for message in st.session_state.messages:
     _show_message(message)
 
-typed = st.chat_input("Ask how a job runs, how pods scale, or how to monitor work...")
-prompt = typed or pending
+if manager_locked:
+    typed = None
+    prompt = None
+else:
+    typed = st.chat_input("Ask how a job runs, how pods scale, or how to monitor work...")
+    prompt = typed or pending
 
 if prompt:
     st.session_state.pending_prompt = None
