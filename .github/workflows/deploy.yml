@@ -72,16 +72,18 @@ jobs:
           cache-to: type=gha,mode=max,scope=evals
 
       # GHCR packages default to private; EC2 pulls anonymously.
+      # Use /users/{owner}/... — GITHUB_TOKEN is not the package "user" for /user/...
       - name: Make GHCR packages public
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           for pkg in enterprise-rag enterprise-rag-evals; do
-            echo "Setting ${pkg} visibility=public"
+            echo "Setting ${owner}/${pkg} visibility=public"
             gh api --method PUT \
               -H "Accept: application/vnd.github+json" \
-              "/user/packages/container/${pkg}/visibility" \
+              "/users/${owner}/packages/container/${pkg}/visibility" \
               -f visibility=public
           done
 
