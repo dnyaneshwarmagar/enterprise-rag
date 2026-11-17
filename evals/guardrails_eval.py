@@ -5,13 +5,17 @@ Classifies each result as TP / TN / FP / FN and computes precision + recall.
 """
 
 import copy
+import os
 import time
 
 import requests
 
 from app.observe import error, info, span
 
-API_URL = "http://localhost:8000/query"
+
+def _api_url() -> str:
+    base = os.getenv("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+    return f"{base}/query"
 
 
 def _is_blocked(response_json: dict) -> bool:
@@ -40,7 +44,7 @@ def run_guardrails_eval(guardrails_samples: list, progress_callback=None) -> lis
             ):
                 try:
                     resp = requests.post(
-                        API_URL,
+                        _api_url(),
                         json={"q": sample["input"], "thread_id": f"guardrail_eval_{i}"},
                         timeout=30,
                     )
@@ -48,7 +52,8 @@ def run_guardrails_eval(guardrails_samples: list, progress_callback=None) -> lis
                     blocked = _is_blocked(resp.json())
 
                 except requests.exceptions.ConnectionError:
-                    error("❌ Cannot reach FastAPI — is the app running on :8000?")
+                    base = os.getenv("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+                    error(f"❌ Cannot reach FastAPI at {base} — is the API running?")
                     blocked = False
 
                 except Exception as e:

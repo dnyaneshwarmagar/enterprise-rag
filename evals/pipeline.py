@@ -14,13 +14,24 @@ import requests
 
 from app.observe import error, info, span
 
-API_URL = "http://localhost:8000/query"
-STATUS_URL_TEMPLATE = "http://localhost:8000/query/status/{job_id}"
 RESPONSE_TRUNCATE = 300
 DELAY_BETWEEN_CALLS = 10  # seconds — stays within Groq RPM on the main key
 REQUEST_TIMEOUT = 120  # seconds — guardrails + LangGraph + Groq can take >60s
 POLL_INTERVAL = 3  # seconds between job status polls
 MAX_POLL_ATTEMPTS = 60  # ~3 minutes max wait per sample
+
+
+def _backend_base() -> str:
+    return os.getenv("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+def _api_url() -> str:
+    return f"{_backend_base()}/query"
+
+
+def _status_url(job_id: str) -> str:
+    return f"{_backend_base()}/query/status/{job_id}"
+
 
 
 def detect_tool(thought_process: list) -> str:
@@ -42,7 +53,7 @@ def detect_tool(thought_process: list) -> str:
 
 def _poll_for_result(job_id: str) -> dict:
     """Poll /query/status until the Celery job completes or times out."""
-    url = STATUS_URL_TEMPLATE.format(job_id=job_id)
+    url = _status_url(job_id)
     for attempt in range(MAX_POLL_ATTEMPTS):
         with span("🔄 Eval polling job", job_id=job_id, attempt=attempt + 1):
             resp = requests.get(url, timeout=REQUEST_TIMEOUT)
@@ -63,7 +74,7 @@ def _poll_for_result(job_id: str) -> dict:
 def _fetch_query_result(question: str, thread_id: str) -> dict:
     """Submit a query and return the final result (handling sync block + async jobs)."""
     resp = requests.post(
-        API_URL,
+        _api_url(),
         json={"q": question, "thread_id": thread_id},
         timeout=REQUEST_TIMEOUT,
     )
@@ -122,7 +133,7 @@ def run_pipeline(golden_dataset: dict, progress_callback=None) -> dict:
                     )
 
                 except requests.exceptions.ConnectionError:
-                    error("❌ Cannot reach FastAPI — is the app running on :8000?")
+                    error(f"❌ Cannot reach FastAPI at {_backend_base()} — is the API running?")
                     sample["actual_response"] = ""
                     sample["actual_contexts"] = sample.get("relevant_contexts", [])
                     sample["actual_tools_called"] = ["unknown"]
@@ -143,11 +154,12 @@ def run_pipeline(golden_dataset: dict, progress_callback=None) -> dict:
 
 
 def save_results(dataset: dict, path: str) -> None:
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(dataset, f, indent=2)
 
 
 def load_golden_dataset() -> dict:
     golden_path = os.path.join(os.path.dirname(__file__), "golden_dataset.json")
-    with open(golden_path) as f:
+    with open(golden_path, encoding="utf-8") as f:
         return json.load(f)
+

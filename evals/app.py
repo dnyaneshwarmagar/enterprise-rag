@@ -18,8 +18,24 @@ from app.observe import span
 nest_asyncio.apply()
 
 from evals.guardrails_eval import compute_guardrails_metrics, run_guardrails_eval
-from evals.metrics import run_all_metrics
 from evals.pipeline import load_golden_dataset, run_pipeline
+
+
+def _backend_url() -> str:
+    return os.getenv("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+def _run_all_metrics(*args, **kwargs):
+    """Lazy-import RAGAS metrics so the UI boots without requirements-evals.txt."""
+    try:
+        from evals.metrics import run_all_metrics
+    except ImportError as exc:
+        raise ImportError(
+            "RAGAS metrics require extras. On the server run: "
+            "pip install -r requirements-evals.txt"
+        ) from exc
+    return run_all_metrics(*args, **kwargs)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Page config
@@ -167,12 +183,12 @@ with tab1:
 with tab2:
     st.subheader("Live Pipeline — Collect Real Responses")
     st.markdown(
-        "Sends each golden question to your **running FastAPI app** (`localhost:8000/query`). "
+        f"Sends each golden question to your **running FastAPI app** (`{_backend_url()}/query`). "
         "Captures the actual response, retrieved contexts, and tool called. "
         "Responses are truncated to 300 chars to save tokens for the RAGAS judging step."
     )
     st.info(
-        "⚠️ Make sure your FastAPI backend is running first: `uvicorn app.main:app --reload --port 8000`",
+        f"⚠️ API must be reachable at `{_backend_url()}` (set `BACKEND_URL` in `.env`).",
         icon="⚠️",
     )
 
@@ -371,16 +387,22 @@ with tab3:
             def status_cb(msg: str):
                 status_slot.info(msg)
 
-            with span("📊 Streamlit — Run Metrics Button"):
-                metric_results = _run_async(run_all_metrics(st.session_state.enriched_dataset, status_cb=status_cb))
-                st.session_state.metric_results = metric_results
+            try:
+                with span("📊 Streamlit — Run Metrics Button"):
+                    metric_results = _run_async(
+                        _run_all_metrics(st.session_state.enriched_dataset, status_cb=status_cb)
+                    )
+                    st.session_state.metric_results = metric_results
 
-            status_slot.success("✅ All 6 experiments complete!")
+                status_slot.success("✅ All 6 experiments complete!")
 
-            for key, title in metric_display_names.items():
-                if key in metric_results:
-                    with results_slots[key].container():
-                        _render_metric_table(metric_results[key], key, title)
+                for key, title in metric_display_names.items():
+                    if key in metric_results:
+                        with results_slots[key].container():
+                            _render_metric_table(metric_results[key], key, title)
+            except ImportError as exc:
+                status_slot.error(str(exc))
+
 
         elif st.session_state.metric_results:
             st.success("✅ Metrics already computed. Showing results below.")

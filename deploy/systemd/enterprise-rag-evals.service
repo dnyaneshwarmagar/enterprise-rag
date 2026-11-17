@@ -1,0 +1,14 @@
+[Unit]
+Description=Enterprise RAG Evals UI
+After=network.target enterprise-rag-api.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/enterprise-rag
+EnvironmentFile=/opt/enterprise-rag/.env
+ExecStart=/opt/enterprise-rag/venv/bin/streamlit run evals/app.py --server.port 8502 --server.address 127.0.0.1 --server.headless true --server.baseUrlPath evals
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
