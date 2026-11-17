@@ -29,17 +29,19 @@ def planner_node(state: AgentState):
     "{user_message}"
 
     Task:
-    1. If the latest message is a greeting (hi, hello) or a question that can be answered using ONLY the conversation history above (e.g., "what is my name"), respond with 'CONVERSATIONAL'.
-    2. If it is a technical question about Kubernetes, Intel, or Networking that requires fresh documentation, output a refined search query.
+    1. Output 'CONVERSATIONAL' ONLY for greetings (hi, hello), thanks/goodbye, or a question that can be answered ONLY from the conversation history above (e.g. "what did I just ask").
+    2. For ANY technical / how-to / documentation question — including Kubernetes, containers, pods, Jobs, CronJobs, Redis work queues, Minikube, Metrics Server, kubectl, Databricks jobs/CLI/SDK/REST API, Intel hardware, or networking — output a short refined search query.
+       Never answer these from model memory. Always search company docs.
 
-    Output ONLY 'CONVERSATIONAL' or the search query.
+    Output ONLY 'CONVERSATIONAL' or the search query. No explanation.
     """
 
     with span("🧠 Planner Decision"):
-        decision = llm.invoke(prompt).content.strip()
+        decision = llm.invoke(prompt).content.strip().strip('"').strip("'")
         info(f"Intent identified: {decision}")
 
-    if decision == "CONVERSATIONAL":
+    # Guard against models wrapping the token in prose.
+    if decision.upper() == "CONVERSATIONAL" or decision.upper().startswith("CONVERSATIONAL"):
         return {
             "current_query": "CONVERSATIONAL",
             "status": "Handling conversationally (using memory)...",

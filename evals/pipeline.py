@@ -15,10 +15,12 @@ import requests
 from app.observe import error, info, span
 
 RESPONSE_TRUNCATE = 300
-DELAY_BETWEEN_CALLS = 10  # seconds — stays within Groq RPM on the main key
+DELAY_BETWEEN_CALLS = 15  # seconds — stay under API RATE_LIMIT_PER_MINUTE
 REQUEST_TIMEOUT = 120  # seconds — guardrails + LangGraph + Groq can take >60s
 POLL_INTERVAL = 3  # seconds between job status polls
 MAX_POLL_ATTEMPTS = 60  # ~3 minutes max wait per sample
+MAX_HTTP_RETRIES = 5
+RETRY_STATUSES = {429, 500, 502, 503, 504}
 
 
 def _backend_base() -> str:
@@ -73,23 +75,45 @@ def _poll_for_result(job_id: str) -> dict:
 
 def _fetch_query_result(question: str, thread_id: str) -> dict:
     """Submit a query and return the final result (handling sync block + async jobs)."""
-    resp = requests.post(
-        _api_url(),
-        json={"q": question, "thread_id": thread_id},
-        timeout=REQUEST_TIMEOUT,
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    headers = {}
+    api_key = os.getenv("RAG_API_KEY", "").strip()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
-    # Guardrails can block synchronously without creating a job.
-    if data.get("status") == "Blocked by guardrails." or "answer" in data:
-        return data
+    last_error: Exception | None = None
+    for attempt in range(MAX_HTTP_RETRIES):
+        try:
+            resp = requests.post(
+                _api_url(),
+                json={"q": question, "thread_id": thread_id},
+                headers=headers or None,
+                timeout=REQUEST_TIMEOUT,
+            )
+            if resp.status_code in RETRY_STATUSES:
+                wait_s = min(60, (2**attempt) * 5)
+                error(f"⏳ /query HTTP {resp.status_code}; retry in {wait_s}s (attempt {attempt + 1}/{MAX_HTTP_RETRIES})")
+                time.sleep(wait_s)
+                last_error = requests.HTTPError(f"{resp.status_code} for {_api_url()}", response=resp)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
 
-    job_id = data.get("job_id")
-    if not job_id:
-        raise RuntimeError(f"Unexpected /query response: {data}")
+            # Guardrails can block synchronously without creating a job.
+            if data.get("status") == "Blocked by guardrails." or "answer" in data:
+                return data
 
-    return _poll_for_result(job_id)
+            job_id = data.get("job_id")
+            if not job_id:
+                raise RuntimeError(f"Unexpected /query response: {data}")
+
+            return _poll_for_result(job_id)
+        except requests.exceptions.RequestException as exc:
+            last_error = exc
+            wait_s = min(60, (2**attempt) * 5)
+            error(f"⏳ /query request error ({exc}); retry in {wait_s}s (attempt {attempt + 1}/{MAX_HTTP_RETRIES})")
+            time.sleep(wait_s)
+
+    raise RuntimeError(f"Query failed after {MAX_HTTP_RETRIES} retries: {last_error}")
 
 
 def run_pipeline(golden_dataset: dict, progress_callback=None) -> dict:

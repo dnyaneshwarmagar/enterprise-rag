@@ -45,7 +45,7 @@ def generate_node(state: AgentState):
     if query == "CONVERSATIONAL":
         info("Generating conversational response using memory.")
         prompt = f"""
-        You are an Enterprise IT Assistant for Kubernetes, Intel hardware, and enterprise networking.
+        You are an Enterprise IT Assistant for Kubernetes, Databricks jobs, Intel hardware, and enterprise networking.
         Answer the user's latest message only when the CONVERSATION HISTORY already contains the answer,
         or when the message is a greeting, thank-you, or goodbye.
         If it asks for anything else, do not use outside knowledge. Say you can only help with those topics
@@ -75,7 +75,7 @@ def generate_node(state: AgentState):
         Answer the question using ONLY the TECHNICAL CONTEXT.
         Do not add facts from outside that context.
         If the context does not contain the answer, say:
-        "I can only answer from the company documents on Kubernetes, Intel hardware, and enterprise networking. I don't have that in these documents."
+        "I can only answer from the company documents on Kubernetes, Databricks jobs, Intel hardware, and enterprise networking. I don't have that in these documents."
         {_STAY_IN_ROLE}
 
         TECHNICAL CONTEXT:
