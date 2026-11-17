@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pull main and restart API, chat UI, evals UI, and reload nginx.
+# Pull main, rebuild Docker images, and restart the Compose stack.
 # Called by GitHub Actions over SSM.
 set -euo pipefail
 
@@ -7,37 +7,31 @@ cd /opt/enterprise-rag
 export GIT_SSH_COMMAND="ssh -i /home/ubuntu/.ssh/github_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
 git fetch origin main
 git reset --hard origin/main
-./venv/bin/pip install --no-cache-dir -r requirements-prod.txt
 
-sudo cp deploy/systemd/enterprise-rag-api.service /etc/systemd/system/
-sudo cp deploy/systemd/enterprise-rag-ui.service /etc/systemd/system/
-sudo cp deploy/systemd/enterprise-rag-evals.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable enterprise-rag-api enterprise-rag-ui enterprise-rag-evals
-sudo systemctl restart enterprise-rag-api enterprise-rag-ui enterprise-rag-evals
-
-if [[ -f deploy/nginx/enterprise-rag.conf ]]; then
-  if ! command -v nginx >/dev/null 2>&1; then
-    sudo apt-get update
-    sudo apt-get install -y nginx
-  fi
-  sudo cp deploy/nginx/enterprise-rag.conf /etc/nginx/sites-available/enterprise-rag
-  sudo ln -sf /etc/nginx/sites-available/enterprise-rag /etc/nginx/sites-enabled/enterprise-rag
-  sudo rm -f /etc/nginx/sites-enabled/default
-  sudo nginx -t
-  sudo systemctl enable nginx
-  sudo systemctl restart nginx
+if ! command -v docker >/dev/null 2>&1; then
+  curl -fsSL https://get.docker.com | sudo sh
+  sudo systemctl enable --now docker
 fi
 
-for _ in $(seq 1 36); do
-  if curl --fail --silent http://127.0.0.1:8000/health \
-    && curl --fail --silent -o /dev/null http://127.0.0.1/api/health; then
+# Ensure legacy host services are not binding ports 80/8501/8502.
+sudo systemctl disable --now enterprise-rag-api enterprise-rag-ui enterprise-rag-evals nginx 2>/dev/null || true
+
+mkdir -p processed_data
+chmod 600 .env 2>/dev/null || true
+
+sudo docker compose build
+sudo docker compose up -d --remove-orphans
+sudo docker image prune -f >/dev/null 2>&1 || true
+
+for _ in $(seq 1 60); do
+  if curl --fail --silent http://127.0.0.1/api/health >/dev/null; then
     echo
+    sudo docker compose ps
     exit 0
   fi
   sleep 5
 done
 
-sudo systemctl status enterprise-rag-api nginx --no-pager || true
-sudo journalctl -u enterprise-rag-api -u nginx -n 80 --no-pager || true
+sudo docker compose ps || true
+sudo docker compose logs --tail=80 api nginx || true
 exit 1

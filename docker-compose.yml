@@ -1,0 +1,96 @@
+# Enterprise RAG — Docker Compose (API + chat + evals + nginx)
+#
+# Local:
+#   docker compose up --build -d
+#   open http://localhost/  http://localhost/evals/  http://localhost/api/health
+#
+# EC2: deploy/remote-update.sh builds and restarts these services.
+#
+# Secrets: host .env (never baked into the image).
+
+services:
+  api:
+    build: .
+    image: enterprise-rag:latest
+    container_name: enterprise-rag-api
+    env_file: .env
+    environment:
+      BACKEND_URL: http://api:8000
+    volumes:
+      - ./processed_data:/app/processed_data
+      - ./access_policy.json:/app/access_policy.json:ro
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  ui:
+    image: enterprise-rag:latest
+    container_name: enterprise-rag-ui
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      BACKEND_URL: http://api:8000
+      EVALS_URL: /evals/
+    volumes:
+      - ./.env:/app/.env:ro
+    command:
+      [
+        "streamlit",
+        "run",
+        "ui/app.py",
+        "--server.port",
+        "8501",
+        "--server.address",
+        "0.0.0.0",
+        "--server.headless",
+        "true",
+      ]
+    restart: unless-stopped
+
+  evals:
+    image: enterprise-rag:latest
+    container_name: enterprise-rag-evals
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      BACKEND_URL: http://api:8000
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./evals/golden_dataset.json:/app/evals/golden_dataset.json:ro
+    command:
+      [
+        "streamlit",
+        "run",
+        "evals/app.py",
+        "--server.port",
+        "8502",
+        "--server.address",
+        "0.0.0.0",
+        "--server.headless",
+        "true",
+        "--server.baseUrlPath",
+        "evals",
+      ]
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: enterprise-rag-nginx
+    depends_on:
+      - api
+      - ui
+      - evals
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx/enterprise-rag.docker.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped

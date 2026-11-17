@@ -10,7 +10,7 @@ build/
 dist/
 wheels/
 
-# Virtual environments (huge — never needed in image)
+# Virtual environments
 venv/
 .venv/
 env/
@@ -18,7 +18,7 @@ genv/
 enterprise_env/
 tenvv/
 
-# Environment & secrets
+# Secrets — mount at runtime via compose env_file / volume
 .env
 commands.md
 
@@ -28,21 +28,21 @@ commands.md
 .vscode/
 .idea/
 
-# Observability local state
+# Observability / agent local state
 .logfire/
-
-# Claude Code memory
 .claude/
+agent-transcripts/
 
-# Data — lives in GCS, not in the container
+# Large / non-runtime trees (processed_data is mounted as a volume)
 DATA/
-
-# Eval suite — runs locally only, not in Cloud Run
-evals/
-
-# Notebooks & docs — not needed at runtime
+processed_data/
 notebooks/
 DOCS/
+tests/
+.github/
+deploy/iam/
+deploy/systemd/
+deploy/local_path_proxy.py
 
 # OS
 .DS_Store
