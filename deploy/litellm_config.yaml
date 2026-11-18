@@ -1,0 +1,39 @@
+# LiteLLM proxy — Portkey-equivalent gateway for this app.
+# Start: litellm --config deploy/litellm_config.yaml --port 4000
+# Docker: see docker-compose `litellm` service.
+#
+# Model aliases used by the API:
+#   rag-primary  → Groq primary key
+#   rag-fallback → Groq fallback key (or same key if only one is set)
+
+model_list:
+  - model_name: rag-primary
+    litellm_params:
+      model: groq/openai/gpt-oss-20b
+      api_key: os.environ/GROQ_API_KEY
+      rpm: 30
+
+  - model_name: rag-fallback
+    litellm_params:
+      model: groq/openai/gpt-oss-20b
+      api_key: os.environ/GROQ_FALLBACK_API_KEY
+      rpm: 30
+
+router_settings:
+  num_retries: 2
+  timeout: 60
+  fallbacks:
+    - rag-primary:
+        - rag-fallback
+
+litellm_settings:
+  drop_params: true
+  # Local in-memory cache (do not use Redis — REDIS_* from app .env is unrelated).
+  cache: true
+  cache_params:
+    type: local
+  set_verbose: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  # Stateless proxy — no Prisma/Postgres required for this app.

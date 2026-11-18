@@ -11,20 +11,15 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 
 from app.access import apply_demo_role, resolve_roles, role_keys
-from app.agents.graph import build_graph
 from app.config import settings
-from app.documents import (
-    DuplicateDocument,
-    index_upload,
-    list_indexed_documents,
-    remove_document,
-    require_document_manager,
-)
-from app.guardrails import guard, initialize_rails
+from app.container import build_container
+from app.dependencies import get_document_service, get_query_service
+from app.documents import DuplicateDocument, require_document_manager
 from app.health import router as health_router
 from app.logging import set_request_id
 from app.observe import error, info, warning
-from app.services.health.connection_checker import check_all_connections, log_connection_summary
+from app.services.document_service import DocumentService
+from app.services.query_service import QueryService
 
 # Custom Prometheus metrics
 RAG_REQUESTS_TOTAL = Counter(
@@ -154,16 +149,29 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_sch
 
 @app.on_event("startup")
 def startup_event():
-    initialize_rails()
+    container = build_container()
+    container.guardrails.initialize()
+    container.build_agent()
 
-    # Build the agent graph with the production checkpointer (Postgres by default).
-    app.state.rag_agent = build_graph()
+    query_service = QueryService(
+        guardrails=container.guardrails,
+        get_agent=lambda: app.state.rag_agent,
+    )
+    document_service = DocumentService()
+    container.query_service = query_service
+    container.document_service = document_service
+
+    app.state.container = container
+    app.state.rag_agent = container.rag_agent
+    app.state.query_service = query_service
+    app.state.document_service = document_service
+    app.state.health_service = container.health_service
 
     app.state.rate_limiter_enabled = _init_rate_limiter()
 
-    # Verify all external dependencies are reachable.
-    connection_results = check_all_connections()
-    all_healthy = log_connection_summary(connection_results)
+    # Verify all external dependencies are reachable (reuse app clients).
+    connection_results = container.health_service.check_all()
+    all_healthy = container.health_service.log_summary(connection_results)
     if settings.STRICT_STARTUP and not all_healthy:
         failed = [name for name, r in connection_results.items() if not r.healthy]
         raise RuntimeError(f"STRICT_STARTUP enabled; failing services: {', '.join(failed)}")
@@ -224,11 +232,12 @@ def get_graph_image(_api_key: str = Depends(verify_api_key)):
 def list_documents(
     demo_role: Optional[str] = None,
     roles: tuple[str, ...] = Depends(verify_api_key),
+    documents: DocumentService = Depends(get_document_service),
 ):
     """Documents a manager can review. Upload and delete stay off when the flag is false."""
     _manager_roles(roles, demo_role, changes=False)
     try:
-        return {"documents": list_indexed_documents()}
+        return {"documents": documents.list_documents()}
     except Exception as exc:
         error(f"Document list failed: {exc}")
         raise HTTPException(status_code=500, detail="Could not list documents.") from exc
@@ -240,12 +249,13 @@ async def add_document(
     audience: str = Form(...),
     demo_role: Optional[str] = Form(None),
     roles: tuple[str, ...] = Depends(verify_api_key),
+    documents: DocumentService = Depends(get_document_service),
 ):
     """Index one file for the selected audience. Manager only, and only when enabled."""
     _manager_roles(roles, demo_role)
     content = await file.read()
     try:
-        stored = index_upload(file.filename or "", content, audience)
+        stored = documents.add_upload(file.filename or "", content, audience)
     except DuplicateDocument as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
@@ -260,11 +270,12 @@ async def add_document(
 def delete_document(
     body: DeleteDocumentRequest,
     roles: tuple[str, ...] = Depends(verify_api_key),
+    documents: DocumentService = Depends(get_document_service),
 ):
     """Remove one indexed file. Manager only, and only when enabled."""
     _manager_roles(roles, body.demo_role)
     try:
-        return remove_document(body.relative_path, body.source_type)
+        return documents.delete(body.relative_path, body.source_type)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -278,13 +289,14 @@ def query(
     request: Request,
     body: QueryRequest,
     roles: tuple[str, ...] = Depends(verify_api_key),
+    query_service: QueryService = Depends(get_query_service),
 ):
     """
     Runs the LangGraph RAG pipeline synchronously.
     Returns the final answer, thought process, status, and sources.
     """
     q = body.q
-    thread_id = body.thread_id
+    thread_id = body.thread_id or "default_user"
     roles = apply_demo_role(roles, body.demo_role)
     request_id = str(uuid.uuid4())
     set_request_id(request_id)
@@ -299,54 +311,8 @@ def query(
         metadata={"request_id": request_id, "thread_id": thread_id},
         parent=parent,
     ) as run:
-        # Gate: run guardrails synchronously so blocked requests never run the graph.
-        rail_fired, rail_response = guard(q)
-        if rail_fired:
-            GUARDRAILS_BLOCKS_TOTAL.labels(blocked="true").inc()
-            RAG_REQUESTS_TOTAL.labels(status="blocked").inc()
-            RAG_REQUEST_DURATION.observe(time.perf_counter() - start)
-            info("🛡️ Request blocked by guardrails", request_id=request_id, thread_id=thread_id)
-            blocked = {
-                "question": q,
-                "answer": rail_response,
-                "thought_process": ["Intent: Guardrails Fired", "Retrieval: Skipped"],
-                "status": "Blocked by guardrails.",
-                "sources": [],
-            }
-            run.end(outputs=blocked)
-            return blocked
-
-        GUARDRAILS_BLOCKS_TOTAL.labels(blocked="false").inc()
-
         try:
-            rag_agent = app.state.rag_agent
-            initial_state = {
-                "messages": [{"role": "user", "content": q}],
-                "current_query": q,
-                "documents": [],
-                "plan": ["Start"],
-                "status": "Initializing Graph...",
-                "access_roles": list(roles),
-            }
-            config = {"configurable": {"thread_id": thread_id}}
-            final_output = rag_agent.invoke(initial_state, config=config)
-
-            RAG_REQUESTS_TOTAL.labels(status="success").inc()
-            RAG_REQUEST_DURATION.observe(time.perf_counter() - start)
-            info(
-                "✅ RAG pipeline completed",
-                request_id=request_id,
-                thread_id=thread_id,
-            )
-            result = {
-                "question": q,
-                "answer": final_output.get("final_answer"),
-                "thought_process": final_output.get("plan"),
-                "status": final_output.get("status"),
-                "sources": final_output.get("documents", []),
-            }
-            run.end(outputs={"answer": result["answer"], "status": result["status"]})
-            return result
+            result = query_service.ask(q, roles=roles, thread_id=thread_id)
         except Exception as e:
             RAG_REQUESTS_TOTAL.labels(status="error").inc()
             RAG_REQUEST_DURATION.observe(time.perf_counter() - start)
@@ -364,3 +330,36 @@ def query(
                     "message": "Failed to process request. Please try again later.",
                 },
             )
+
+        if result.get("blocked"):
+            GUARDRAILS_BLOCKS_TOTAL.labels(blocked="true").inc()
+            RAG_REQUESTS_TOTAL.labels(status="blocked").inc()
+            RAG_REQUEST_DURATION.observe(time.perf_counter() - start)
+            info("🛡️ Request blocked by guardrails", request_id=request_id, thread_id=thread_id)
+            blocked = {
+                "question": result["question"],
+                "answer": result["answer"],
+                "thought_process": result["thought_process"],
+                "status": result["status"],
+                "sources": result["sources"],
+            }
+            run.end(outputs=blocked)
+            return blocked
+
+        GUARDRAILS_BLOCKS_TOTAL.labels(blocked="false").inc()
+        RAG_REQUESTS_TOTAL.labels(status="success").inc()
+        RAG_REQUEST_DURATION.observe(time.perf_counter() - start)
+        info(
+            "✅ RAG pipeline completed",
+            request_id=request_id,
+            thread_id=thread_id,
+        )
+        payload = {
+            "question": result["question"],
+            "answer": result["answer"],
+            "thought_process": result["thought_process"],
+            "status": result["status"],
+            "sources": result["sources"],
+        }
+        run.end(outputs={"answer": payload["answer"], "status": payload["status"]})
+        return payload

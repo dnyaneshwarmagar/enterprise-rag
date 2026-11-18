@@ -148,7 +148,7 @@ def test_manager_can_list_while_changes_are_turned_off(monkeypatch):
         settings.DOCUMENT_ADMIN_ENABLED = False
         client = _open_api()
         monkeypatch.setattr(
-            "app.main.list_indexed_documents",
+            "app.documents.list_indexed_documents",
             lambda: [{"relative_path": "uploads/note.txt", "source_type": "general", "audience": "public"}],
         )
         listed = client.get("/documents", params={"demo_role": "manager"})
@@ -190,9 +190,9 @@ def test_manager_upload_list_and_delete_use_the_selected_audience(monkeypatch):
     try:
         settings.DOCUMENT_ADMIN_ENABLED = True
         client = _open_api()
-        monkeypatch.setattr("app.main.index_upload", fake_index)
+        monkeypatch.setattr("app.documents.index_upload", fake_index)
         monkeypatch.setattr(
-            "app.main.list_indexed_documents",
+            "app.documents.list_indexed_documents",
             lambda: [
                 {
                     "relative_path": "uploads/note.txt",
@@ -203,7 +203,7 @@ def test_manager_upload_list_and_delete_use_the_selected_audience(monkeypatch):
             ],
         )
         monkeypatch.setattr(
-            "app.main.remove_document",
+            "app.documents.remove_document",
             lambda relative_path, source_type="general": {
                 "relative_path": relative_path,
                 "source_type": source_type,

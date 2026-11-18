@@ -1,13 +1,18 @@
+from typing import Any
+
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
-from app.agents.nodes.planner import planner_node
-from app.agents.nodes.responder import generate_node
-from app.agents.nodes.retriever import retrieve_node
+from app.agents.nodes.planner import make_planner_node, planner_node
+from app.agents.nodes.responder import generate_node, make_generate_node
+from app.agents.nodes.retriever import make_retrieve_node, retrieve_node
 from app.agents.state import AgentState
 from app.config import settings
 from app.observe import info, warning
+from app.ports.llm import LLMGateway
+from app.ports.reranker import Reranker
+from app.ports.vector_store import VectorStore
 
 
 def create_checkpointer() -> BaseCheckpointSaver:
@@ -59,43 +64,55 @@ def create_checkpointer() -> BaseCheckpointSaver:
         return MemorySaver()
 
 
-def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> StateGraph:
+def build_graph(
+    checkpointer: BaseCheckpointSaver | None = None,
+    *,
+    llm: LLMGateway | None = None,
+    vector_store: VectorStore | None = None,
+    reranker: Reranker | None = None,
+    planner: Any | None = None,
+    retriever: Any | None = None,
+    responder: Any | None = None,
+) -> StateGraph:
     """
     Build and compile the LangGraph RAG agent.
 
     Args:
         checkpointer: Optional checkpointer. If None, a Postgres-backed
             checkpointer is created. Pass a MemorySaver in tests.
+        llm / vector_store / reranker: When provided, node factories close over them.
+        planner / retriever / responder: Optional pre-built node callables.
     """
     if checkpointer is None:
         checkpointer = create_checkpointer()
 
-    # 1. Initialize the State Graph
+    if planner is None:
+        planner = make_planner_node(llm.get_langchain_llm(feature="planner")) if llm is not None else planner_node
+    if retriever is None:
+        retriever = (
+            make_retrieve_node(vector_store=vector_store, reranker=reranker)
+            if vector_store is not None or reranker is not None
+            else retrieve_node
+        )
+    if responder is None:
+        responder = make_generate_node(llm) if llm is not None else generate_node
+
     workflow = StateGraph(AgentState)
 
-    # 2. Define the Nodes
-    workflow.add_node("planner", planner_node)
-    workflow.add_node("retriever", retrieve_node)
-    workflow.add_node("responder", generate_node)
+    workflow.add_node("planner", planner)
+    workflow.add_node("retriever", retriever)
+    workflow.add_node("responder", responder)
 
-    # 3. Define the Edges & Routing Logic
     def route_planner(state: AgentState):
-        """
-        Routes the workflow based on the planner's decision.
-        """
         if state["current_query"] == "CONVERSATIONAL":
             return "responder"
         return "retriever"
 
     workflow.set_entry_point("planner")
-
-    # Conditional Edge: Planner -> Router -> (Retriever OR Responder)
     workflow.add_conditional_edges("planner", route_planner, {"retriever": "retriever", "responder": "responder"})
-
     workflow.add_edge("retriever", "responder")
     workflow.add_edge("responder", END)
 
-    # 4. Compile the Graph with Memory
     return workflow.compile(checkpointer=checkpointer)
 
 

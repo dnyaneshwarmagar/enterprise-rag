@@ -44,7 +44,8 @@ nemoguardrails              # NVIDIA NeMo Guardrails for input/output safety rai
 langchain-nvidia-ai-endpoints # LangChain integration with NVIDIA AI Endpoints
 
 # --- LLM GATEWAY ---
-portkey-ai                  # Portkey Gateway for unified LLM routing, fallbacks & observability
+portkey-ai                  # Optional rollback gateway (LLM_GATEWAY=portkey)
+# LiteLLM runs as a separate proxy process/container (see deploy/litellm_config.yaml)
 
 # --- PRODUCTION PERSISTENCE & RELIABILITY ---
 langgraph-checkpoint-postgres  # Postgres-backed LangGraph checkpointer

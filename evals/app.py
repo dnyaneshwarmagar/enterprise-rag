@@ -23,7 +23,7 @@ except ValueError:
 
 
 from evals.guardrails_eval import compute_guardrails_metrics, run_guardrails_eval
-from evals.pipeline import load_golden_dataset, run_pipeline
+from evals.pipeline import RESPONSE_TRUNCATE, load_golden_dataset, run_pipeline
 
 
 def _backend_url() -> str:
@@ -191,7 +191,8 @@ with tab2:
     st.markdown(
         f"Sends each golden question to your **running FastAPI app** (`{_backend_url()}/query`). "
         "Captures the actual response, retrieved contexts, and tool called. "
-        "Responses are truncated to 300 chars to save tokens for the RAGAS judging step."
+        f"Responses are soft-truncated to {RESPONSE_TRUNCATE} chars "
+        "(override with `EVAL_RESPONSE_TRUNCATE`) so RAGAS sees a full answer without unbounded cost."
     )
     st.info(
         f"⚠️ API must be reachable at `{_backend_url()}` (set `BACKEND_URL` in `.env`).",
@@ -359,12 +360,13 @@ with tab3:
     else:
         st.markdown(
             "Runs all **6 metric experiments** on the stored responses. "
-            "LLM judge uses Portkey `PORTKEY_FALLBACK_SLUG` (Groq); embeddings use Jina. "
+            "LLM judge uses `JUDGE_GROQ_API_KEY` (direct Groq) when set, else the "
+            "LiteLLM proxy fallback alias. Embeddings use Jina. "
             "Samples are scored one at a time with cooldowns as a rate-limit buffer."
         )
         st.info(
-            "Judge route: Portkey fallback slug → Groq. Embeddings: Jina API. "
-            "No OpenAI judge key required for Step 3.",
+            "Judge route: JUDGE_GROQ_API_KEY → api.groq.com (preferred), else LiteLLM. "
+            "Embeddings: Jina API.",
             icon="ℹ️",
         )
 

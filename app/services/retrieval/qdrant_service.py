@@ -1,15 +1,25 @@
 import logging
 
-from qdrant_client import QdrantClient
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 
 from app.access import access_filter
 from app.config import settings
+from app.infra.qdrant import get_qdrant_client
 from app.observe import error, logger
 from app.services.retrieval.embedding import embed_query
 
-# Initialize Qdrant Client
-client = QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
+class _SharedQdrantProxy:
+    """Module alias that always forwards to the process-wide singleton.
+
+    Tests may still ``patch("app.services.retrieval.qdrant_service.client")``.
+    """
+
+    def __getattr__(self, name):
+        return getattr(get_qdrant_client(), name)
+
+
+# Same process-wide client used by ingestion and QdrantVectorStore.
+client = _SharedQdrantProxy()
 
 
 @retry(

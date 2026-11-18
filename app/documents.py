@@ -15,12 +15,12 @@ from qdrant_client.http import models
 from app.access import ADMIN_ROLE
 from app.config import document_admin_enabled, settings
 from app.ingestion.identity import content_sha256, document_key
+from app.infra.qdrant import get_qdrant_client
 from app.ingestion.processor import (
     FileResult,
     delete_document_points,
     ensure_collection,
     process_document,
-    qdrant_client,
 )
 from app.ingestion.storage import SourceDocument, delete_stored_document, hash_stored_original
 from app.observe import info, span
@@ -142,7 +142,8 @@ def find_duplicate(content_hash: str) -> dict | None:
     the hash is saved on their points, so the next check is a lookup.
     """
     global _hashes_backfilled
-    if not content_hash or not qdrant_client.collection_exists(settings.QDRANT_COLLECTION):
+    client = get_qdrant_client()
+    if not content_hash or not client.collection_exists(settings.QDRANT_COLLECTION):
         return None
     ensure_collection(False)
     found = _document_with_hash(content_hash)
@@ -154,7 +155,7 @@ def find_duplicate(content_hash: str) -> dict | None:
 
 
 def _document_with_hash(content_hash: str) -> dict | None:
-    points, _ = qdrant_client.scroll(
+    points, _ = get_qdrant_client().scroll(
         collection_name=settings.QDRANT_COLLECTION,
         scroll_filter=models.Filter(
             must=[
@@ -182,10 +183,11 @@ def _document_with_hash(content_hash: str) -> dict | None:
 
 def _remember_missing_hashes() -> None:
     """Hash stored originals that were indexed before content hashes existed."""
+    client = get_qdrant_client()
     missing: dict[str, str] = {}
     offset = None
     while True:
-        points, offset = qdrant_client.scroll(
+        points, offset = client.scroll(
             collection_name=settings.QDRANT_COLLECTION,
             limit=256,
             offset=offset,
@@ -207,7 +209,7 @@ def _remember_missing_hashes() -> None:
         digest = hash_stored_original(relative)
         if not digest:
             continue
-        qdrant_client.set_payload(
+        client.set_payload(
             collection_name=settings.QDRANT_COLLECTION,
             payload={"content_sha256": digest},
             points=models.Filter(
@@ -220,12 +222,13 @@ def _remember_missing_hashes() -> None:
 
 def list_indexed_documents() -> list[dict]:
     """One row per indexed file, with the audience stored on its chunks."""
-    if not qdrant_client.collection_exists(settings.QDRANT_COLLECTION):
+    client = get_qdrant_client()
+    if not client.collection_exists(settings.QDRANT_COLLECTION):
         return []
     found: dict[str, dict] = {}
     offset = None
     while True:
-        points, offset = qdrant_client.scroll(
+        points, offset = client.scroll(
             collection_name=settings.QDRANT_COLLECTION,
             limit=256,
             offset=offset,

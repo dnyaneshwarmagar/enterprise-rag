@@ -14,7 +14,7 @@ def test_query_open_when_no_api_key_configured():
     try:
         settings.API_KEY = None
         client = TestClient(app)
-        with patch("app.main.guard") as mock_guard:
+        with patch("app.guardrails.rails.guard") as mock_guard:
             mock_guard.return_value = (True, "blocked")
             response = client.post("/query", json={"q": "hi"})
         assert response.json()["status"] == "Blocked by guardrails."
@@ -45,7 +45,7 @@ def test_query_accepts_valid_api_key():
     try:
         settings.API_KEY = "super-secret"
         client = TestClient(app)
-        with patch("app.main.guard") as mock_guard:
+        with patch("app.guardrails.rails.guard") as mock_guard:
             mock_guard.return_value = (True, "blocked")
             response = client.post(
                 "/query",
@@ -67,7 +67,7 @@ def test_role_key_is_accepted_and_an_unknown_key_is_rejected():
         client = TestClient(app)
         missing = client.post("/query", json={"q": "hi"})
         assert missing.status_code == 401
-        with patch("app.main.guard") as mock_guard:
+        with patch("app.guardrails.rails.guard") as mock_guard:
             mock_guard.return_value = (True, "blocked")
             allowed = client.post(
                 "/query",

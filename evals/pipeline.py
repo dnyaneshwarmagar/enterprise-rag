@@ -1,7 +1,7 @@
 """
 Phase 1 — Live Pipeline.
 Calls the running FastAPI /query endpoint for each golden sample.
-Captures: actual_response (truncated to 300 chars), actual_contexts (from sources),
+Captures: actual_response (soft-truncated), actual_contexts (from sources),
 and actual_tools_called (detected from thought_process).
 """
 
@@ -14,8 +14,11 @@ import requests
 
 from app.observe import error, info, span
 
-RESPONSE_TRUNCATE = 300
-DELAY_BETWEEN_CALLS = 15  # seconds — stay under API RATE_LIMIT_PER_MINUTE
+# Keep enough answer text for RAGAS Answer Relevancy (reverse-questions need a
+# complete reply). 300 chars was cutting mid-answer and artificially tanking scores.
+# Cap still bounds judge/embed token cost on very long generations.
+RESPONSE_TRUNCATE = int(os.getenv("EVAL_RESPONSE_TRUNCATE", "2500"))
+DELAY_BETWEEN_CALLS = 20  # seconds — stay under API RATE_LIMIT_PER_MINUTE (default 20/min)
 REQUEST_TIMEOUT = 120  # seconds — guardrails + LangGraph + Groq can take >60s
 POLL_INTERVAL = 3  # seconds between job status polls
 MAX_POLL_ATTEMPTS = 60  # ~3 minutes max wait per sample

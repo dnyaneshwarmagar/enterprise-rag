@@ -58,7 +58,7 @@ def test_check_upstash_redis_failure():
 
 def test_check_qdrant_success():
     mock_client = MagicMock()
-    with patch("app.services.health.connection_checker.QdrantClient", return_value=mock_client):
+    with patch("app.services.health.connection_checker.get_qdrant_client", return_value=mock_client):
         result = _check_qdrant()
     assert result.healthy is True
     assert result.name == "qdrant"
@@ -66,7 +66,9 @@ def test_check_qdrant_success():
 
 
 def test_check_qdrant_failure():
-    with patch("app.services.health.connection_checker.QdrantClient", side_effect=Exception("unauthorized")):
+    mock_client = MagicMock()
+    mock_client.get_collections.side_effect = Exception("unauthorized")
+    with patch("app.services.health.connection_checker.get_qdrant_client", return_value=mock_client):
         result = _check_qdrant()
     assert result.healthy is False
 

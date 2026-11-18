@@ -1,5 +1,31 @@
 # Enterprise Agentic RAG: LangGraph · Guardrails · LLM Gateway · RAGAS Evals
 
+## Dependency injection
+
+Process-scoped deps are built once in `app/container.py` (`build_container`) at API startup:
+
+| Layer | Location | Role |
+|---|---|---|
+| Ports | `app/ports/` | Protocols: `LLMGateway`, `Embedder`, `VectorStore`, `Reranker`, `GuardrailsPort`, `ObjectStorage` |
+| Adapters | `app/adapters/` | **LiteLLM** (default), Portkey (rollback), Jina, Qdrant, NeMo, S3 |
+| Shared infra | `app/infra/qdrant.py` | One Qdrant client for search + ingestion |
+| Services | `QueryService`, `DocumentService`, `HealthService` | Application use-cases |
+| FastAPI | `app/dependencies.py` | `Depends(get_query_service)` etc. |
+| Agents | `build_graph(llm=..., vector_store=..., reranker=...)` | Node factories close over ports |
+
+### LLM gateway (LiteLLM proxy)
+
+Default `LLM_GATEWAY=litellm`. The API talks OpenAI-compatible HTTP to a LiteLLM proxy
+(`LITELLM_BASE_URL`, aliases `rag-primary` / `rag-fallback` in `deploy/litellm_config.yaml`).
+The proxy owns retries, fallbacks, and response cache (Portkey’s former role).
+
+- Docker: `litellm` service on `:4000`; API uses `http://litellm:4000`
+- Local: `litellm --config deploy/litellm_config.yaml --port 4000`
+- Rollback: `LLM_GATEWAY=portkey` + `PORTKEY_API_KEY`
+
+`app/gateway/client.py` is a thin façade (`portkey_client` / `get_langchain_llm` names kept)
+over `LiteLLMGateway` or `PortkeyLLMGateway`.
+
 ```mermaid
 graph LR
 
@@ -36,9 +62,9 @@ graph LR
     %% ── LLM Gateway ──────────────────────────────────────────────────────────
     subgraph GATEWAY ["🌐  LLM Gateway"]
         direction TB
-        PK["🔀 Portkey\nUnified Gateway"]
-        G1["🤖 OpenAI Primary\ngpt-5-mini · via Portkey"]
-        G2["🤖 Anthropic Fallback\nclaude-haiku-4-5 · via Portkey"]
+        PK["🔀 LiteLLM Proxy\nFallback · Retry · Cache"]
+        G1["🤖 Groq Primary\nrag-primary"]
+        G2["🤖 Groq Fallback\nrag-fallback"]
     end
 
     %% ── Ingestion ────────────────────────────────────────────────────────────
@@ -62,7 +88,7 @@ graph LR
         GD[("📋 Golden Dataset\n15 Samples · 6 Guardrail Tests")]
         RAGAS["RAGAS Metrics\nFaithfulness · Relevancy\nPrecision · Recall · Correctness"]
         TC["Tool Correctness\nJaccard · Zero LLM"]
-        JUDGE["⚖️ Judge LLM\nOpenAI · JUDGE_OPENAI_API_KEY"]
+        JUDGE["⚖️ Judge LLM\nJUDGE_GROQ_API_KEY · else LiteLLM"]
     end
 
     %% ── Main Query Flow ──────────────────────────────────────────────────────
@@ -150,9 +176,9 @@ graph TB
         direction LR
         QD[("🗄️ Qdrant Cloud\nVector DB")]
         FR["⚡ Jina Reranker\nAPI · jina-reranker-v3"]
-        PK["🔀 Portkey Gateway\nRouting + Fallback"]
-        G1["🤖 OpenAI Primary\ngpt-5-mini · via Portkey"]
-        G2["🤖 Anthropic Fallback\nclaude-haiku-4-5 · via Portkey"]
+        PK["🔀 LiteLLM Proxy\nFallback · Retry · Cache"]
+        G1["🤖 Groq Primary\nrag-primary"]
+        G2["🤖 Groq Fallback\nrag-fallback"]
     end
 
     subgraph INGEST ["5. Data Ingestion"]
@@ -167,7 +193,7 @@ graph TB
         GD[("📋 Golden Dataset\n15 RAG Samples · 6 Guardrail Tests")]
         RAGAS["RAGAS Metrics\nFaithfulness · Relevancy · Precision\nRecall · Correctness"]
         TC["Tool Correctness\nJaccard · Zero LLM Cost"]
-        JG["⚖️ Judge LLM\nOpenAI · Separate Key"]
+        JG["⚖️ Judge LLM\nDirect Groq key · else LiteLLM"]
     end
 
     subgraph OBS ["7. Monitoring & Observability"]
@@ -238,7 +264,7 @@ graph TB
     B["⚡ 2. FastAPI + 🛡️ NeMo Guardrails"]
     C["🧠 3. LangGraph Agent\nPlanner → Retriever → Responder"]
     D["🗄️ 4. Qdrant Cloud\n+ Jina AI Reranker"]
-    E["🌐 5. Portkey Gateway\nOpenAI gpt-5-mini · Anthropic Fallback"]
+    E["🌐 5. LiteLLM Proxy\nGroq primary · Groq fallback"]
     F["📥 6. Data Ingestion\nLocal Parsers · Jina Embeddings · processed_data/"]
     G["🧪 7. RAGAS Evals\nFaithfulness · Precision · Recall · Correctness"]
     H["📡 8. Monitoring\nLogfire · LangSmith"]

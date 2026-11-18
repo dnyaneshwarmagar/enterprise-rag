@@ -22,7 +22,7 @@ def test_query_returns_direct_answer():
     app.state.rag_agent = mock_agent
 
     client = TestClient(app)
-    with patch("app.main.guard") as mock_guard:
+    with patch("app.guardrails.rails.guard") as mock_guard:
         mock_guard.return_value = (False, "")
         response = client.post("/query", json={"q": "hi", "thread_id": "t1"})
 
@@ -37,7 +37,7 @@ def test_query_returns_direct_answer():
 def test_query_blocks_guardrails():
     """/query should return a blocked response when guardrails fire."""
     client = TestClient(app)
-    with patch("app.main.guard") as mock_guard:
+    with patch("app.guardrails.rails.guard") as mock_guard:
         mock_guard.return_value = (True, "Blocked message")
         response = client.post("/query", json={"q": "bad prompt", "thread_id": "t2"})
 

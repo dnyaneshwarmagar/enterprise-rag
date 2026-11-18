@@ -14,13 +14,49 @@ x-app: &app
   image: ${ENTERPRISE_RAG_IMAGE:-815398003681.dkr.ecr.us-east-1.amazonaws.com/enterprise-rag:main}
 
 services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: enterprise-rag-litellm
+    env_file: .env
+    environment:
+      # Prefer GROQ_API_KEY; entrypoint also accepts JUDGE_GROQ_API_KEY.
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-local}
+      # Do NOT attach Neon/Postgres — proxy should run without LiteLLM's Prisma DB.
+      DATABASE_URL: ""
+      DIRECT_URL: ""
+      DISABLE_SCHEMA_UPDATE: "true"
+      STORE_MODEL_IN_DB: "False"
+    volumes:
+      - ./deploy/litellm_config.yaml:/app/deploy/litellm_config.yaml:ro
+      - ./deploy/litellm_entrypoint.sh:/app/deploy/litellm_entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/app/deploy/litellm_entrypoint.sh"]
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=5)\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
   api:
     <<: *app
     build: .
     container_name: enterprise-rag-api
+    depends_on:
+      litellm:
+        condition: service_healthy
     env_file: .env
     environment:
       BACKEND_URL: http://api:8000
+      LLM_GATEWAY: litellm
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-local}
     volumes:
       - ./processed_data:/app/processed_data
       - ./access_policy.json:/app/access_policy.json:ro

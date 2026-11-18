@@ -129,3 +129,44 @@ jobs:
             sleep 15
           done
           exit 1
+
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::815398003681:role/enterprise-rag-github
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Live /query smoke via Groq (LiteLLM on EC2)
+        env:
+          SMOKE_TIMEOUT_S: "180"
+          SMOKE_QUESTION: "What kubectl command lists Kubernetes Jobs?"
+          RAG_API_KEY: ${{ secrets.RAG_API_KEY }}
+        run: |
+          set -eu
+          if [ -n "${{ secrets.SMOKE_BASE_URL }}" ]; then
+            base="${{ secrets.SMOKE_BASE_URL }}"
+          else
+            ip=$(aws ec2 describe-instances \
+              --instance-ids i-07a586aa1312f97c3 \
+              --query 'Reservations[0].Instances[0].PublicIpAddress' \
+              --output text)
+            test -n "$ip" && test "$ip" != "None"
+            base="http://${ip}/api"
+          fi
+          echo "SMOKE_BASE_URL=${base}"
+          export SMOKE_BASE_URL="$base"
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 10 "${base}/health" | grep -q ok; then
+              break
+            fi
+            echo "waiting for health ($i)..."
+            sleep 10
+          done
+          chmod +x deploy/smoke_groq_query.sh
+          bash deploy/smoke_groq_query.sh

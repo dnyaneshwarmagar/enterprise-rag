@@ -28,16 +28,29 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str
     JUDGE_OPENAI_API_KEY: str | None = None
 
-    # --- PORTKEY LLM GATEWAY ---
-    PORTKEY_API_KEY: str
+    # --- GROQ (LiteLLM proxy + optional direct judge) ---
+    GROQ_API_KEY: str | None = None
+    # Optional second Groq key for LiteLLM fallback routing.
+    GROQ_FALLBACK_API_KEY: str | None = None
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
+    # RAGAS judge prefers this direct key (bypasses the proxy).
+    JUDGE_GROQ_API_KEY: str | None = None
+    JUDGE_GROQ_MODEL: str = "openai/gpt-oss-20b"
+
+    # --- LITELLM PROXY (default LLM gateway; Portkey replacement) ---
+    # litellm | portkey — portkey kept for rollback only.
+    LLM_GATEWAY: str = "litellm"
+    LITELLM_BASE_URL: str = "http://127.0.0.1:4000"
+    LITELLM_MASTER_KEY: str = "sk-litellm-local"
+    # Aliases defined in deploy/litellm_config.yaml
+    LITELLM_MODEL: str = "rag-primary"
+    LITELLM_FALLBACK_MODEL: str = "rag-fallback"
+
+    # --- PORTKEY LLM GATEWAY (optional rollback when LLM_GATEWAY=portkey) ---
+    PORTKEY_API_KEY: str | None = None
     PORTKEY_PRIMARY_SLUG: str = "hrpolicyrag"
     PORTKEY_FALLBACK_SLUG: str = "hrpolicybackup"
-    # Groq model id served by the Portkey provider slug. openai/gpt-oss-20b is
-    # on Groq's developer plan; llama-3.3-70b-versatile is enterprise-only.
     PORTKEY_MODEL: str = "openai/gpt-oss-20b"
-    # Optional saved config (`pc-...`). When set, Portkey applies that config's
-    # fallback, retry, and cache rules. When unset, calls go straight to the
-    # provider slug with no saved-config routing.
     PORTKEY_PRIMARY_CONFIG_ID: str | None = None
 
     # --- S3 DOCUMENT STORAGE ---
@@ -85,13 +98,43 @@ class Settings(BaseSettings):
     LANGSMITH_PROJECT: str = "rag_scale_test"
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
 
-    @field_validator("QDRANT_API_KEY", "PORTKEY_PRIMARY_CONFIG_ID", "S3_BUCKET", "AWS_REGION", mode="before")
+    @field_validator(
+        "QDRANT_API_KEY",
+        "PORTKEY_PRIMARY_CONFIG_ID",
+        "PORTKEY_API_KEY",
+        "S3_BUCKET",
+        "AWS_REGION",
+        "JUDGE_GROQ_API_KEY",
+        "JUDGE_OPENAI_API_KEY",
+        "GROQ_API_KEY",
+        "GROQ_FALLBACK_API_KEY",
+        mode="before",
+    )
     @classmethod
     def _empty_optional_as_none(cls, v):
         """Treat blank optional secrets as unset so they are not sent as empty headers."""
         if v == "" or v is None:
             return None
         return v
+
+    @property
+    def groq_api_key(self) -> str | None:
+        """Groq key for LiteLLM; falls back to the dedicated judge key."""
+        return self.GROQ_API_KEY or self.JUDGE_GROQ_API_KEY
+
+    @property
+    def groq_fallback_api_key(self) -> str | None:
+        """Fallback Groq key for LiteLLM routing."""
+        return self.GROQ_FALLBACK_API_KEY or self.groq_api_key
+
+    @property
+    def judge_groq_api_key(self) -> str | None:
+        """Direct Groq key for RAGAS judge, if configured."""
+        return self.JUDGE_GROQ_API_KEY or self.GROQ_API_KEY
+
+    @property
+    def use_litellm_gateway(self) -> bool:
+        return (self.LLM_GATEWAY or "litellm").strip().lower() == "litellm"
 
     @property
     def judge_api_key(self) -> str:

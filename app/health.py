@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from app.observe import warning
 from app.services.health.connection_checker import check_all_connections
+from app.services.health_service import HealthService
 
 router = APIRouter(tags=["health"])
 
@@ -22,7 +23,11 @@ def ready(request: Request):
     Returns 200 only if Postgres, Redis, Qdrant, the LLM gateway, Jina Embeddings,
     and Jina Reranker are all healthy.
     """
-    results = check_all_connections()
+    health_service = getattr(request.app.state, "health_service", None)
+    if isinstance(health_service, HealthService):
+        results = health_service.check_all()
+    else:
+        results = check_all_connections()
     checks = {name: result.to_dict()["status"] for name, result in results.items()}
     healthy = all(r.healthy for r in results.values())
 

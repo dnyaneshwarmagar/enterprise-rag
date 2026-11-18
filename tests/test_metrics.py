@@ -12,7 +12,7 @@ def test_metrics_endpoint_exposes_rag_counters():
     client = TestClient(app)
 
     # Make a blocked /query request so no real Celery backend is needed.
-    with patch("app.main.guard") as mock_guard:
+    with patch("app.guardrails.rails.guard") as mock_guard:
         mock_guard.return_value = (True, "blocked")
         response = client.post("/query", json={"q": "test"})
     assert response.status_code == 200

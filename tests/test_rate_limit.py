@@ -19,7 +19,7 @@ def test_rate_limit_blocks_excessive_requests():
         app.state.limiter = Limiter(key_func=get_remote_address)
 
         client = TestClient(app)
-        with patch("app.main.guard") as mock_guard:
+        with patch("app.guardrails.rails.guard") as mock_guard:
             mock_guard.return_value = (True, "blocked")
             response1 = client.post("/query", json={"q": "hi"})
             response2 = client.post("/query", json={"q": "hi again"})

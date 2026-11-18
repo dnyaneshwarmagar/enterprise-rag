@@ -3,11 +3,11 @@ import os
 import sys
 from dataclasses import dataclass, field
 
-from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 from app.access import roles_for_document
 from app.config import settings
+from app.infra.qdrant import get_qdrant_client
 from app.observe import error, info, span, warning
 from app.ingestion.chunking.splitter import chunk_pages
 from app.ingestion.identity import document_key, file_sha256, point_id
@@ -26,11 +26,15 @@ from app.services.retrieval.embedding import embed_texts, get_embedding_dim
 PROCESSED_DATA_DIR = "processed_data"
 UPSERT_BATCH = 64
 
-qdrant_client = QdrantClient(
-    url=settings.QDRANT_URL,
-    api_key=settings.QDRANT_API_KEY,
-    timeout=120,
-)
+class _SharedQdrantProxy:
+    """Module alias that always forwards to the process-wide singleton."""
+
+    def __getattr__(self, name):
+        return getattr(get_qdrant_client(), name)
+
+
+# Same process-wide client as retrieval / QdrantVectorStore (timeout=120).
+qdrant_client = _SharedQdrantProxy()
 
 
 @dataclass

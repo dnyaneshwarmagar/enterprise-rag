@@ -8,16 +8,17 @@ Run from the command line:
 from __future__ import annotations
 
 import sys
-from typing import Callable
+from typing import Any, Callable
 
 import requests
 from psycopg_pool import ConnectionPool
-from qdrant_client import QdrantClient
 from redis import Redis
 
 from app.config import settings
-from app.gateway.client import portkey_client, portkey_model
+from app.gateway.client import get_gateway, portkey_client, portkey_model
+from app.infra.qdrant import get_qdrant_client
 from app.observe import info, warning
+from app.ports.llm import LLMGateway
 
 
 class ConnectionResult:
@@ -84,32 +85,36 @@ def _check_upstash_redis() -> ConnectionResult:
         return ConnectionResult("redis", False, str(e))
 
 
-def _check_qdrant() -> ConnectionResult:
-    """Verify Qdrant cluster is reachable."""
+def _check_qdrant(client: Any | None = None) -> ConnectionResult:
+    """Verify Qdrant cluster is reachable (uses the shared client by default)."""
     try:
-        client = QdrantClient(
-            url=settings.QDRANT_URL,
-            api_key=settings.QDRANT_API_KEY,
-            timeout=5,
-        )
-        client.get_collections()
+        qdrant = client if client is not None else get_qdrant_client()
+        qdrant.get_collections()
         return ConnectionResult("qdrant", True, "Qdrant reachable")
     except Exception as e:
         warning(f"Qdrant health check failed: {e}")
         return ConnectionResult("qdrant", False, str(e))
 
 
-def _check_portkey_gateway() -> ConnectionResult:
-    """Verify Portkey LLM gateway responds to a minimal completion."""
+def _check_portkey_gateway(llm: LLMGateway | None = None) -> ConnectionResult:
+    """Verify the active LLM gateway (LiteLLM proxy by default) responds."""
     try:
-        resp = portkey_client.chat.completions.create(
-            model=portkey_model(),
+        if llm is not None:
+            client = llm.sync_client
+            model = llm.model_id()
+        else:
+            # Module-level names stay patchable for unit tests.
+            client = portkey_client
+            model = portkey_model()
+        resp = client.chat.completions.create(
+            model=model,
             messages=[{"role": "user", "content": "Say hello in one word."}],
             max_completion_tokens=200,
             timeout=30,
         )
         if resp.choices and resp.choices[0].message.content is not None:
-            return ConnectionResult("llm_gateway", True, "Portkey gateway reachable")
+            label = "LiteLLM" if settings.use_litellm_gateway else "Portkey"
+            return ConnectionResult("llm_gateway", True, f"{label} gateway reachable")
         raise RuntimeError("empty response")
     except Exception as e:
         warning(f"LLM gateway health check failed: {e}")
@@ -192,22 +197,43 @@ def _check_langsmith() -> ConnectionResult:
         return ConnectionResult("langsmith", False, str(e))
 
 
-# Ordered list of all checks to run during startup and /ready.
-_CHECKERS: list[Callable[[], ConnectionResult]] = [
-    _check_neon_postgres,
-    _check_upstash_redis,
-    _check_qdrant,
-    _check_portkey_gateway,
-    _check_jina_embeddings,
-    _check_jina_reranker,
-    _check_langsmith,
-]
+def _default_checkers(
+    *,
+    llm: LLMGateway | None = None,
+    qdrant_client: Any | None = None,
+) -> list[Callable[[], ConnectionResult]]:
+    return [
+        _check_neon_postgres,
+        _check_upstash_redis,
+        lambda: _check_qdrant(qdrant_client),
+        lambda: _check_portkey_gateway(llm),
+        _check_jina_embeddings,
+        _check_jina_reranker,
+        _check_langsmith,
+    ]
 
 
-def check_all_connections() -> dict[str, ConnectionResult]:
-    """Run all connection checks and return a map of service name to result."""
+# Ordered list used when no deps are injected (CLI / tests that patch _CHECKERS).
+_CHECKERS: list[Callable[[], ConnectionResult]] = _default_checkers()
+
+
+def check_all_connections(
+    *,
+    llm: LLMGateway | None = None,
+    qdrant_client: Any | None = None,
+) -> dict[str, ConnectionResult]:
+    """Run all connection checks and return a map of service name to result.
+
+    When ``llm`` / ``qdrant_client`` are provided (startup /ready), probes reuse
+    the same process clients as the app. Otherwise defaults to the shared
+    gateway + Qdrant singletons.
+    """
+    if llm is None and qdrant_client is None:
+        checkers = _CHECKERS
+    else:
+        checkers = _default_checkers(llm=llm, qdrant_client=qdrant_client)
     results: dict[str, ConnectionResult] = {}
-    for checker in _CHECKERS:
+    for checker in checkers:
         result = checker()
         results[result.name] = result
     return results
@@ -245,4 +271,6 @@ def _print_cli_report(results: dict[str, ConnectionResult]) -> int:
 
 
 if __name__ == "__main__":
+    # Ensure gateway singleton is constructed before CLI probes.
+    get_gateway()
     sys.exit(_print_cli_report(check_all_connections()))
