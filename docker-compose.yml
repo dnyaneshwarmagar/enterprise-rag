@@ -15,7 +15,9 @@ x-app: &app
 
 services:
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
+    # EC2 cannot anonymously pull ghcr.io/berriai/litellm (denied).
+    # CD mirrors that image into ECR as enterprise-rag-litellm:main.
+    image: ${LITELLM_IMAGE:-815398003681.dkr.ecr.us-east-1.amazonaws.com/enterprise-rag-litellm:main}
     container_name: enterprise-rag-litellm
     env_file: .env
     environment:

@@ -13,6 +13,8 @@ env:
   ECR_REGISTRY: 815398003681.dkr.ecr.us-east-1.amazonaws.com
   ECR_APP_REPO: enterprise-rag
   ECR_EVALS_REPO: enterprise-rag-evals
+  ECR_LITELLM_REPO: enterprise-rag-litellm
+  LITELLM_SOURCE_IMAGE: ghcr.io/berriai/litellm:main-stable
 
 jobs:
   test:
@@ -24,6 +26,7 @@ jobs:
     outputs:
       image: ${{ steps.meta.outputs.image }}
       evals_image: ${{ steps.meta.outputs.evals_image }}
+      litellm_image: ${{ steps.meta.outputs.litellm_image }}
     steps:
       - uses: actions/checkout@v4
 
@@ -42,12 +45,31 @@ jobs:
           set -eu
           image="${{ env.ECR_REGISTRY }}/${{ env.ECR_APP_REPO }}"
           evals_image="${{ env.ECR_REGISTRY }}/${{ env.ECR_EVALS_REPO }}"
+          litellm_image="${{ env.ECR_REGISTRY }}/${{ env.ECR_LITELLM_REPO }}"
           echo "image=${image}" >> "$GITHUB_OUTPUT"
           echo "evals_image=${evals_image}" >> "$GITHUB_OUTPUT"
-          echo "Pushing ${image} and ${evals_image} (:main + :${{ github.sha }})"
+          echo "litellm_image=${litellm_image}" >> "$GITHUB_OUTPUT"
+          echo "Pushing ${image}, ${evals_image}, ${litellm_image} (:main + :${{ github.sha }})"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Ensure LiteLLM ECR repo exists
+        run: |
+          set -eu
+          aws ecr describe-repositories --repository-names "${{ env.ECR_LITELLM_REPO }}" >/dev/null 2>&1 \
+            || aws ecr create-repository --repository-name "${{ env.ECR_LITELLM_REPO }}" --image-scanning-configuration scanOnPush=true >/dev/null
+
+      - name: Mirror LiteLLM image into ECR
+        run: |
+          set -eu
+          src="${{ env.LITELLM_SOURCE_IMAGE }}"
+          dst="${{ steps.meta.outputs.litellm_image }}"
+          docker pull "$src"
+          docker tag "$src" "${dst}:main"
+          docker tag "$src" "${dst}:${{ github.sha }}"
+          docker push "${dst}:main"
+          docker push "${dst}:${{ github.sha }}"
 
       - name: Build and push app image
         uses: docker/build-push-action@v6
@@ -91,12 +113,14 @@ jobs:
         env:
           IMAGE: ${{ needs.publish.outputs.image }}:${{ github.sha }}
           EVALS_IMAGE: ${{ needs.publish.outputs.evals_image }}:${{ github.sha }}
+          LITELLM_IMAGE: ${{ needs.publish.outputs.litellm_image }}:main
         run: |
           set -eu
           image_q=$(printf '%q' "$IMAGE")
           evals_q=$(printf '%q' "$EVALS_IMAGE")
+          litellm_q=$(printf '%q' "$LITELLM_IMAGE")
           cat > /tmp/ssm.json <<EOF
-          {"commands":["sudo -u ubuntu env ENTERPRISE_RAG_IMAGE=${image_q} ENTERPRISE_RAG_EVALS_IMAGE=${evals_q} bash /opt/enterprise-rag/deploy/remote-update.sh"]}
+          {"commands":["sudo -u ubuntu env ENTERPRISE_RAG_IMAGE=${image_q} ENTERPRISE_RAG_EVALS_IMAGE=${evals_q} LITELLM_IMAGE=${litellm_q} bash /opt/enterprise-rag/deploy/remote-update.sh"]}
           EOF
           command_id=$(aws ssm send-command \
             --instance-ids i-07a586aa1312f97c3 \
@@ -105,7 +129,7 @@ jobs:
             --comment "deploy main (ECR compose pull)" \
             --parameters file:///tmp/ssm.json \
             --query Command.CommandId --output text)
-          echo "command=$command_id image=$IMAGE evals=$EVALS_IMAGE"
+          echo "command=$command_id image=$IMAGE evals=$EVALS_IMAGE litellm=$LITELLM_IMAGE"
           for _ in $(seq 1 80); do
             status=$(aws ssm get-command-invocation \
               --command-id "$command_id" \

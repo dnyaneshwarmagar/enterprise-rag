@@ -15,6 +15,7 @@ if ! git diff --quiet HEAD origin/main -- deploy/remote-update.sh; then
   exec env \
     ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-}" \
     ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-}" \
+    LITELLM_IMAGE="${LITELLM_IMAGE:-}" \
     AWS_REGION="${AWS_REGION:-us-east-1}" \
     bash /opt/enterprise-rag/deploy/remote-update.sh
 fi
@@ -34,6 +35,7 @@ chmod 600 .env 2>/dev/null || true
 # Default images if Actions did not pass them.
 export ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-${ECR_REGISTRY}/enterprise-rag:main}"
 export ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-${ECR_REGISTRY}/enterprise-rag-evals:main}"
+export LITELLM_IMAGE="${LITELLM_IMAGE:-${ECR_REGISTRY}/enterprise-rag-litellm:main}"
 
 # ECR login via instance role (enterprise-rag-ec2 / ecr-pull).
 if ! command -v aws >/dev/null 2>&1; then
@@ -50,16 +52,21 @@ echo "Pulling ${ENTERPRISE_RAG_IMAGE}"
 sudo docker pull "${ENTERPRISE_RAG_IMAGE}"
 echo "Pulling ${ENTERPRISE_RAG_EVALS_IMAGE}"
 sudo docker pull "${ENTERPRISE_RAG_EVALS_IMAGE}"
+echo "Pulling ${LITELLM_IMAGE}"
+sudo docker pull "${LITELLM_IMAGE}"
 
 sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
   ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+  LITELLM_IMAGE="${LITELLM_IMAGE}" \
   docker compose pull || true
 sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
   ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+  LITELLM_IMAGE="${LITELLM_IMAGE}" \
   docker compose up -d --remove-orphans --no-build
 # Nginx caches upstream IPs; recreate so it sees new api/ui/evals containers.
 sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
   ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+  LITELLM_IMAGE="${LITELLM_IMAGE}" \
   docker compose up -d --force-recreate --no-deps nginx
 sudo docker image prune -f >/dev/null 2>&1 || true
 
@@ -68,6 +75,7 @@ for _ in $(seq 1 60); do
     echo
     sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
       ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+      LITELLM_IMAGE="${LITELLM_IMAGE}" \
       docker compose ps
     # Smoke: RAGAS import inside the evals image (Step 3 deps).
     if sudo docker exec enterprise-rag-evals python -c "from evals.metrics import run_all_metrics; print('ragas_ok')" 2>/dev/null; then
@@ -84,8 +92,10 @@ done
 
 sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
   ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+  LITELLM_IMAGE="${LITELLM_IMAGE}" \
   docker compose ps || true
 sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
   ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
+  LITELLM_IMAGE="${LITELLM_IMAGE}" \
   docker compose logs --tail=80 api evals nginx || true
 exit 1
