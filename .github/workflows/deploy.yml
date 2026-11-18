@@ -70,9 +70,9 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          # Only :main — SHA tags keep every build billed in ECR Free Tier.
           tags: |
             ${{ steps.meta.outputs.image }}:main
-            ${{ steps.meta.outputs.image }}:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=app
@@ -86,7 +86,6 @@ jobs:
           push: true
           tags: |
             ${{ steps.meta.outputs.evals_image }}:main
-            ${{ steps.meta.outputs.evals_image }}:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=evals
@@ -104,8 +103,8 @@ jobs:
 
       - name: Pull images on EC2 and restart Compose
         env:
-          IMAGE: ${{ needs.publish.outputs.image }}:${{ github.sha }}
-          EVALS_IMAGE: ${{ needs.publish.outputs.evals_image }}:${{ github.sha }}
+          IMAGE: ${{ needs.publish.outputs.image }}:main
+          EVALS_IMAGE: ${{ needs.publish.outputs.evals_image }}:main
           LITELLM_IMAGE: ${{ needs.publish.outputs.litellm_image }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GROQ_FALLBACK_API_KEY: ${{ secrets.GROQ_FALLBACK_API_KEY }}
