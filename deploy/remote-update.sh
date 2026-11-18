@@ -37,6 +37,10 @@ fi
 sudo systemctl disable --now enterprise-rag-api enterprise-rag-ui enterprise-rag-evals nginx 2>/dev/null || true
 
 mkdir -p processed_data
+# SSM one-shots may leave .env root-owned; keep it writable by ubuntu.
+if [ -e .env ] && [ ! -w .env ]; then
+  sudo chown "$(id -u):$(id -g)" .env || true
+fi
 touch .env
 chmod 600 .env
 
