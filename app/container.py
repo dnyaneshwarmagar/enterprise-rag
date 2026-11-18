@@ -12,7 +12,8 @@ from app.adapters.nemo_guardrails import NemoGuardrailsAdapter
 from app.adapters.portkey_llm import PortkeyLLMGateway
 from app.adapters.qdrant_store import QdrantVectorStore
 from app.adapters.s3_storage import S3ObjectStorage
-from app.config import Settings, settings as default_settings
+from app.config import Settings
+from app.config import settings as default_settings
 from app.gateway import client as gateway_client
 from app.gateway.client import get_gateway, reset_gateway_for_tests
 from app.infra.qdrant import get_qdrant_client

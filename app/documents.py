@@ -14,8 +14,8 @@ from qdrant_client.http import models
 
 from app.access import ADMIN_ROLE
 from app.config import document_admin_enabled, settings
-from app.ingestion.identity import content_sha256, document_key
 from app.infra.qdrant import get_qdrant_client
+from app.ingestion.identity import content_sha256, document_key
 from app.ingestion.processor import (
     FileResult,
     delete_document_points,

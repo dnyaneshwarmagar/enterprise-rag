@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from qdrant_client import QdrantClient
 
-from app.config import Settings, settings as default_settings
+from app.config import Settings
+from app.config import settings as default_settings
 
 # Ingestion upserts need a longer timeout than search; one client covers both.
 _DEFAULT_TIMEOUT_SECONDS = 120
