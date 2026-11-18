@@ -30,7 +30,35 @@ fi
 sudo systemctl disable --now enterprise-rag-api enterprise-rag-ui enterprise-rag-evals nginx 2>/dev/null || true
 
 mkdir -p processed_data
-chmod 600 .env 2>/dev/null || true
+touch .env
+chmod 600 .env
+
+# Upsert a KEY=value in .env without printing secrets.
+_upsert_env() {
+  local key="$1"
+  local value="$2"
+  local tmp
+  [ -n "$value" ] || return 0
+  tmp="$(mktemp)"
+  if grep -qE "^${key}=" .env 2>/dev/null; then
+    awk -v k="$key" -v v="$value" 'BEGIN{FS=OFS="="} $1==k{$0=k"="v} {print}' .env >"$tmp"
+  else
+    cat .env >"$tmp"
+    printf '%s=%s\n' "$key" "$value" >>"$tmp"
+  fi
+  mv "$tmp" .env
+  chmod 600 .env
+}
+
+# Optional inject from CD (GitHub Secrets → SSM env). Never echo values.
+_upsert_env GROQ_API_KEY "${GROQ_API_KEY:-}"
+_upsert_env GROQ_FALLBACK_API_KEY "${GROQ_FALLBACK_API_KEY:-}"
+_upsert_env JUDGE_GROQ_API_KEY "${JUDGE_GROQ_API_KEY:-}"
+_upsert_env LITELLM_MASTER_KEY "${LITELLM_MASTER_KEY:-}"
+_upsert_env LLM_GATEWAY "${LLM_GATEWAY:-litellm}"
+_upsert_env LITELLM_BASE_URL "${LITELLM_BASE_URL:-http://litellm:4000}"
+_upsert_env LITELLM_MODEL "${LITELLM_MODEL:-rag-primary}"
+_upsert_env LITELLM_FALLBACK_MODEL "${LITELLM_FALLBACK_MODEL:-rag-fallback}"
 
 # Default images if Actions did not pass them.
 export ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-${ECR_REGISTRY}/enterprise-rag:main}"

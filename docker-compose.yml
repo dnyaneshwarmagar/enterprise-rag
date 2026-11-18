@@ -52,7 +52,8 @@ services:
     container_name: enterprise-rag-api
     depends_on:
       litellm:
-        condition: service_healthy
+        # service_started: do not block API if LiteLLM is still booting / missing keys.
+        condition: service_started
     env_file: .env
     environment:
       BACKEND_URL: http://api:8000

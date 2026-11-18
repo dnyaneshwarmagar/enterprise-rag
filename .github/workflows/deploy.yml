@@ -107,13 +107,21 @@ jobs:
           IMAGE: ${{ needs.publish.outputs.image }}:${{ github.sha }}
           EVALS_IMAGE: ${{ needs.publish.outputs.evals_image }}:${{ github.sha }}
           LITELLM_IMAGE: ${{ needs.publish.outputs.litellm_image }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_FALLBACK_API_KEY: ${{ secrets.GROQ_FALLBACK_API_KEY }}
+          JUDGE_GROQ_API_KEY: ${{ secrets.JUDGE_GROQ_API_KEY }}
+          LITELLM_MASTER_KEY: ${{ secrets.LITELLM_MASTER_KEY }}
         run: |
           set -eu
           image_q=$(printf '%q' "$IMAGE")
           evals_q=$(printf '%q' "$EVALS_IMAGE")
           litellm_q=$(printf '%q' "$LITELLM_IMAGE")
+          groq_q=$(printf '%q' "${GROQ_API_KEY:-}")
+          groq_fb_q=$(printf '%q' "${GROQ_FALLBACK_API_KEY:-}")
+          judge_q=$(printf '%q' "${JUDGE_GROQ_API_KEY:-}")
+          master_q=$(printf '%q' "${LITELLM_MASTER_KEY:-sk-litellm-local}")
           cat > /tmp/ssm.json <<EOF
-          {"commands":["sudo -u ubuntu env ENTERPRISE_RAG_IMAGE=${image_q} ENTERPRISE_RAG_EVALS_IMAGE=${evals_q} LITELLM_IMAGE=${litellm_q} bash /opt/enterprise-rag/deploy/remote-update.sh"]}
+          {"commands":["sudo -u ubuntu env ENTERPRISE_RAG_IMAGE=${image_q} ENTERPRISE_RAG_EVALS_IMAGE=${evals_q} LITELLM_IMAGE=${litellm_q} GROQ_API_KEY=${groq_q} GROQ_FALLBACK_API_KEY=${groq_fb_q} JUDGE_GROQ_API_KEY=${judge_q} LITELLM_MASTER_KEY=${master_q} LLM_GATEWAY=litellm LITELLM_BASE_URL=http://litellm:4000 bash /opt/enterprise-rag/deploy/remote-update.sh"]}
           EOF
           command_id=$(aws ssm send-command \
             --instance-ids i-07a586aa1312f97c3 \
