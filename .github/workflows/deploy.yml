@@ -159,39 +159,59 @@ jobs:
     needs: deploy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::815398003681:role/enterprise-rag-github
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Live /query smoke via Groq (LiteLLM on EC2)
+      - name: Live /query smoke via Groq (SSM on EC2)
         env:
-          SMOKE_TIMEOUT_S: "180"
-          SMOKE_QUESTION: "What kubectl command lists Kubernetes Jobs?"
           RAG_API_KEY: ${{ secrets.RAG_API_KEY }}
         run: |
           set -eu
-          if [ -n "${{ secrets.SMOKE_BASE_URL }}" ]; then
-            base="${{ secrets.SMOKE_BASE_URL }}"
-          else
-            ip=$(aws ec2 describe-instances \
-              --instance-ids i-07a586aa1312f97c3 \
-              --query 'Reservations[0].Instances[0].PublicIpAddress' \
-              --output text)
-            test -n "$ip" && test "$ip" != "None"
-            base="http://${ip}/api"
+          # Run smoke on the instance (localhost) — no ec2:DescribeInstances needed.
+          auth_hdr=""
+          if [ -n "${RAG_API_KEY:-}" ]; then
+            auth_hdr="-H \"Authorization: Bearer ${RAG_API_KEY}\""
           fi
-          echo "SMOKE_BASE_URL=${base}"
-          export SMOKE_BASE_URL="$base"
-          for i in $(seq 1 30); do
-            if curl -fsS --max-time 10 "${base}/health" | grep -q ok; then
-              break
-            fi
-            echo "waiting for health ($i)..."
+          cat > /tmp/ssm-smoke.json <<EOF
+          {"commands":["set -eu","for i in \$(seq 1 36); do curl -fsS --max-time 10 http://127.0.0.1/api/health | grep -q ok && break; echo waiting_\$i; sleep 5; done","curl -fsS --max-time 10 http://127.0.0.1/api/health","resp=\$(curl -fsS --max-time 180 -H 'Content-Type: application/json' ${auth_hdr} -d '{\"q\":\"What kubectl command lists Kubernetes Jobs?\",\"thread_id\":\"cd-smoke\"}' http://127.0.0.1/api/query)","echo \"\$resp\" | head -c 500","echo \"\$resp\" | grep -q '\"answer\"'","echo \"\$resp\" | grep -vq '\"answer\": \"\"'","echo SMOKE_OK"]}
+          EOF
+          command_id=$(aws ssm send-command \
+            --instance-ids i-07a586aa1312f97c3 \
+            --document-name AWS-RunShellScript \
+            --timeout-seconds 600 \
+            --comment "post-deploy groq /query smoke" \
+            --parameters file:///tmp/ssm-smoke.json \
+            --query Command.CommandId --output text)
+          echo "command=$command_id"
+          for _ in $(seq 1 60); do
+            status=$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id i-07a586aa1312f97c3 \
+              --query Status --output text || true)
+            echo "status=$status"
+            case "$status" in
+              Success)
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id i-07a586aa1312f97c3 \
+                  --query StandardOutputContent --output text
+                exit 0
+                ;;
+              Failed|TimedOut|Cancelled|Cancelling)
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id i-07a586aa1312f97c3 \
+                  --query StandardErrorContent --output text || true
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id i-07a586aa1312f97c3 \
+                  --query StandardOutputContent --output text || true
+                exit 1
+                ;;
+            esac
             sleep 10
           done
-          chmod +x deploy/smoke_groq_query.sh
-          bash deploy/smoke_groq_query.sh
+          exit 1
