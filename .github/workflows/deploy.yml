@@ -13,7 +13,8 @@ env:
   ECR_REGISTRY: 815398003681.dkr.ecr.us-east-1.amazonaws.com
   ECR_APP_REPO: enterprise-rag
   ECR_EVALS_REPO: enterprise-rag-evals
-  ECR_LITELLM_REPO: enterprise-rag-litellm
+  # Reuse app ECR repo tags (no CreateRepository IAM needed).
+  LITELLM_ECR_TAG: litellm-main
   LITELLM_SOURCE_IMAGE: ghcr.io/berriai/litellm:main-stable
 
 jobs:
@@ -45,20 +46,14 @@ jobs:
           set -eu
           image="${{ env.ECR_REGISTRY }}/${{ env.ECR_APP_REPO }}"
           evals_image="${{ env.ECR_REGISTRY }}/${{ env.ECR_EVALS_REPO }}"
-          litellm_image="${{ env.ECR_REGISTRY }}/${{ env.ECR_LITELLM_REPO }}"
+          litellm_image="${image}:${{ env.LITELLM_ECR_TAG }}"
           echo "image=${image}" >> "$GITHUB_OUTPUT"
           echo "evals_image=${evals_image}" >> "$GITHUB_OUTPUT"
           echo "litellm_image=${litellm_image}" >> "$GITHUB_OUTPUT"
-          echo "Pushing ${image}, ${evals_image}, ${litellm_image} (:main + :${{ github.sha }})"
+          echo "Pushing ${image}, ${evals_image}, LiteLLM→${litellm_image}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Ensure LiteLLM ECR repo exists
-        run: |
-          set -eu
-          aws ecr describe-repositories --repository-names "${{ env.ECR_LITELLM_REPO }}" >/dev/null 2>&1 \
-            || aws ecr create-repository --repository-name "${{ env.ECR_LITELLM_REPO }}" --image-scanning-configuration scanOnPush=true >/dev/null
 
       - name: Mirror LiteLLM image into ECR
         run: |
@@ -66,10 +61,8 @@ jobs:
           src="${{ env.LITELLM_SOURCE_IMAGE }}"
           dst="${{ steps.meta.outputs.litellm_image }}"
           docker pull "$src"
-          docker tag "$src" "${dst}:main"
-          docker tag "$src" "${dst}:${{ github.sha }}"
-          docker push "${dst}:main"
-          docker push "${dst}:${{ github.sha }}"
+          docker tag "$src" "$dst"
+          docker push "$dst"
 
       - name: Build and push app image
         uses: docker/build-push-action@v6
@@ -113,7 +106,7 @@ jobs:
         env:
           IMAGE: ${{ needs.publish.outputs.image }}:${{ github.sha }}
           EVALS_IMAGE: ${{ needs.publish.outputs.evals_image }}:${{ github.sha }}
-          LITELLM_IMAGE: ${{ needs.publish.outputs.litellm_image }}:main
+          LITELLM_IMAGE: ${{ needs.publish.outputs.litellm_image }}
         run: |
           set -eu
           image_q=$(printf '%q' "$IMAGE")

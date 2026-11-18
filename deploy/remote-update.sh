@@ -35,7 +35,7 @@ chmod 600 .env 2>/dev/null || true
 # Default images if Actions did not pass them.
 export ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-${ECR_REGISTRY}/enterprise-rag:main}"
 export ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-${ECR_REGISTRY}/enterprise-rag-evals:main}"
-export LITELLM_IMAGE="${LITELLM_IMAGE:-${ECR_REGISTRY}/enterprise-rag-litellm:main}"
+export LITELLM_IMAGE="${LITELLM_IMAGE:-${ECR_REGISTRY}/enterprise-rag:litellm-main}"
 
 # ECR login via instance role (enterprise-rag-ec2 / ecr-pull).
 if ! command -v aws >/dev/null 2>&1; then
