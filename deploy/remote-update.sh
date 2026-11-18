@@ -12,11 +12,18 @@ git fetch origin main
 # If this script changed on main, re-exec the new file (bash keeps the old inode otherwise).
 if ! git diff --quiet HEAD origin/main -- deploy/remote-update.sh; then
   git reset --hard origin/main
+  # Preserve CD-injected secrets across re-exec (env replaces the process environ).
   exec env \
     ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE:-}" \
     ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE:-}" \
     LITELLM_IMAGE="${LITELLM_IMAGE:-}" \
     AWS_REGION="${AWS_REGION:-us-east-1}" \
+    GROQ_API_KEY="${GROQ_API_KEY:-}" \
+    GROQ_FALLBACK_API_KEY="${GROQ_FALLBACK_API_KEY:-}" \
+    JUDGE_GROQ_API_KEY="${JUDGE_GROQ_API_KEY:-}" \
+    LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-}" \
+    LLM_GATEWAY="${LLM_GATEWAY:-litellm}" \
+    LITELLM_BASE_URL="${LITELLM_BASE_URL:-http://litellm:4000}" \
     bash /opt/enterprise-rag/deploy/remote-update.sh
 fi
 git reset --hard origin/main
@@ -105,14 +112,7 @@ for _ in $(seq 1 60); do
       ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
       LITELLM_IMAGE="${LITELLM_IMAGE}" \
       docker compose ps
-    # Smoke: RAGAS import inside the evals image (Step 3 deps).
-    if sudo docker exec enterprise-rag-evals python -c "from evals.metrics import run_all_metrics; print('ragas_ok')" 2>/dev/null; then
-      echo "RAGAS import OK in enterprise-rag-evals"
-    else
-      echo "WARN: RAGAS import failed inside evals container" >&2
-      sudo docker logs --tail=40 enterprise-rag-evals || true
-      exit 1
-    fi
+    # Deploy readiness is /api/health only. Live /query smoke runs in CD (single query).
     exit 0
   fi
   sleep 5

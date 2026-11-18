@@ -165,12 +165,12 @@ jobs:
           role-to-assume: arn:aws:iam::815398003681:role/enterprise-rag-github
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Live /query smoke via Groq (SSM on EC2)
+      - name: Single /query smoke (SSM on EC2)
         env:
           RAG_API_KEY: ${{ secrets.RAG_API_KEY }}
         run: |
           set -eu
-          # Run smoke on the instance (localhost) — no ec2:DescribeInstances needed.
+          # Health wait + one live /query only (no golden/RAGAS eval).
           auth_hdr=""
           if [ -n "${RAG_API_KEY:-}" ]; then
             auth_hdr="-H \"Authorization: Bearer ${RAG_API_KEY}\""
