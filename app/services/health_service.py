@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from app.ports.llm import LLMGateway
 from app.ports.vector_store import VectorStore
 from app.services.health.connection_checker import ConnectionResult, check_all_connections, log_connection_summary

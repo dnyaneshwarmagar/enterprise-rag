@@ -8,6 +8,7 @@ from app.infra.qdrant import get_qdrant_client
 from app.observe import error, logger
 from app.services.retrieval.embedding import embed_query
 
+
 class _SharedQdrantProxy:
     """Module alias that always forwards to the process-wide singleton.
 
