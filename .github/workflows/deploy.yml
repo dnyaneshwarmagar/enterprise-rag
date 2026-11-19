@@ -267,7 +267,7 @@ jobs:
             auth_hdr="-H \"Authorization: Bearer ${RAG_API_KEY}\""
           fi
           cat > /tmp/ssm-smoke.json <<EOF
-          {"commands":["set -eu","for i in \$(seq 1 36); do curl -fsS --max-time 10 http://127.0.0.1/api/health | grep -q ok && break; echo waiting_\$i; sleep 5; done","curl -fsS --max-time 10 http://127.0.0.1/api/health","resp=\$(curl -fsS --max-time 180 -H 'Content-Type: application/json' ${auth_hdr} -d '{\"q\":\"What kubectl command lists Kubernetes Jobs?\",\"thread_id\":\"cd-smoke\"}' http://127.0.0.1/api/query)","echo \"\$resp\" | head -c 500","echo \"\$resp\" | grep -q '\"answer\"'","echo \"\$resp\" | grep -vq '\"answer\": \"\"'","echo SMOKE_OK"]}
+          {"commands":["set -eu","for i in \$(seq 1 48); do api=0; llm=0; curl -fsS --max-time 10 http://127.0.0.1/api/health 2>/dev/null | grep -q ok && api=1; curl -fsS --max-time 10 http://127.0.0.1:4000/health/liveliness >/dev/null 2>&1 && llm=1; [ \"\$api\" = 1 ] && [ \"\$llm\" = 1 ] && break; echo waiting_\$i api=\$api litellm=\$llm; sleep 5; done","curl -fsS --max-time 10 http://127.0.0.1/api/health","curl -fsS --max-time 10 http://127.0.0.1:4000/health/liveliness","resp=\"\"; for j in \$(seq 1 5); do resp=\$(curl -fsS --max-time 180 -H 'Content-Type: application/json' ${auth_hdr} -d '{\"q\":\"What kubectl command lists Kubernetes Jobs?\",\"thread_id\":\"cd-smoke\"}' http://127.0.0.1/api/query) && break; echo query_retry_\$j; sleep 15; done","echo \"\$resp\" | head -c 500","echo \"\$resp\" | grep -q '\"answer\"'","echo \"\$resp\" | grep -vq '\"answer\": \"\"'","echo SMOKE_OK"]}
           EOF
 
           for attempt in 1 2 3; do

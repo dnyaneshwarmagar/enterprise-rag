@@ -129,17 +129,24 @@ sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
 sudo docker image prune -f >/dev/null 2>&1 || true
 df -h / || true
 
-for _ in $(seq 1 60); do
-  if curl --fail --silent http://127.0.0.1/api/health >/dev/null; then
+# API /health is local; LiteLLM boots slowly on t3.micro (gc.freeze). Wait for both
+# before ok so CD smoke /query does not race a still-starting proxy.
+for _ in $(seq 1 90); do
+  api_ok=0
+  llm_ok=0
+  curl --fail --silent --max-time 5 http://127.0.0.1/api/health >/dev/null 2>&1 && api_ok=1
+  curl --fail --silent --max-time 5 http://127.0.0.1:4000/health/liveliness >/dev/null 2>&1 && llm_ok=1
+  if [ "$api_ok" = 1 ] && [ "$llm_ok" = 1 ]; then
     echo
     sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
       ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
       LITELLM_IMAGE="${LITELLM_IMAGE}" \
       docker compose ps
-    # Deploy readiness is /api/health only. Live /query smoke runs in CD (single query).
+    # Live /query smoke runs in CD (single query).
     _write_status ok
     exit 0
   fi
+  echo "waiting health api=${api_ok} litellm=${llm_ok}"
   sleep 5
 done
 
