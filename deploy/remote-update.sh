@@ -98,7 +98,14 @@ fi
 aws ecr get-login-password --region "${AWS_REGION}" \
   | sudo docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
-# Sequential pulls reduce peak RAM on t3.micro (avoids SSM/agent pressure when run under nohup).
+# Free disk before pulls — t3.micro root volume fills with old layers quickly.
+df -h / || true
+sudo docker container prune -f >/dev/null 2>&1 || true
+sudo docker image prune -af >/dev/null 2>&1 || true
+sudo docker builder prune -af >/dev/null 2>&1 || true
+df -h / || true
+
+# Sequential pulls reduce peak RAM/disk pressure on t3.micro.
 _pull_one() {
   local img="$1"
   echo "Pulling ${img}"
@@ -113,10 +120,6 @@ _pull_one "${LITELLM_IMAGE}"
 sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
   ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
   LITELLM_IMAGE="${LITELLM_IMAGE}" \
-  docker compose pull || true
-sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
-  ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
-  LITELLM_IMAGE="${LITELLM_IMAGE}" \
   docker compose up -d --remove-orphans --no-build
 # Nginx caches upstream IPs; recreate so it sees new api/ui/evals containers.
 sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
@@ -124,6 +127,7 @@ sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
   LITELLM_IMAGE="${LITELLM_IMAGE}" \
   docker compose up -d --force-recreate --no-deps nginx
 sudo docker image prune -f >/dev/null 2>&1 || true
+df -h / || true
 
 for _ in $(seq 1 60); do
   if curl --fail --silent http://127.0.0.1/api/health >/dev/null; then
