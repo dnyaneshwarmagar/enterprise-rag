@@ -5,9 +5,7 @@
   "document_key": "general/uploads/pods_autoscale.html",
   "content_sha256": "06c1b5057bb8a1a76e853e9989c2b58ddeb9cf5dd90e8e49957043a9531885bd",
   "access_roles": [
-    "employee",
-    "hr",
-    "manager"
+    "employee"
   ],
   "chunks": [
     {
