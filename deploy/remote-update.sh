@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 # Pull main + pull pre-built ECR images (app + evals), then restart Compose.
-# Called by GitHub Actions over SSM with ENTERPRISE_RAG_IMAGE / ENTERPRISE_RAG_EVALS_IMAGE set.
+# Called by GitHub Actions over SSM (often via ssm-deploy-kickoff.sh background).
 set -euo pipefail
 
 AWS_REGION="${AWS_REGION:-us-east-1}"
 ECR_REGISTRY="${ECR_REGISTRY:-815398003681.dkr.ecr.us-east-1.amazonaws.com}"
+STATUS_FILE="${DEPLOY_STATUS_FILE:-/tmp/enterprise-rag-deploy.status}"
+
+_write_status() {
+  printf '%s\n' "$1" >"$STATUS_FILE" 2>/dev/null || true
+}
+
+_fail() {
+  _write_status failed
+  exit 1
+}
 
 cd /opt/enterprise-rag
 export GIT_SSH_COMMAND="ssh -i /home/ubuntu/.ssh/github_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
@@ -24,6 +34,7 @@ if ! git diff --quiet HEAD origin/main -- deploy/remote-update.sh; then
     LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-}" \
     LLM_GATEWAY="${LLM_GATEWAY:-litellm}" \
     LITELLM_BASE_URL="${LITELLM_BASE_URL:-http://litellm:4000}" \
+    DEPLOY_STATUS_FILE="${STATUS_FILE}" \
     bash /opt/enterprise-rag/deploy/remote-update.sh
 fi
 git reset --hard origin/main
@@ -87,12 +98,17 @@ fi
 aws ecr get-login-password --region "${AWS_REGION}" \
   | sudo docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
-echo "Pulling ${ENTERPRISE_RAG_IMAGE}"
-sudo docker pull "${ENTERPRISE_RAG_IMAGE}"
-echo "Pulling ${ENTERPRISE_RAG_EVALS_IMAGE}"
-sudo docker pull "${ENTERPRISE_RAG_EVALS_IMAGE}"
-echo "Pulling ${LITELLM_IMAGE}"
-sudo docker pull "${LITELLM_IMAGE}"
+# Sequential pulls reduce peak RAM on t3.micro (avoids SSM/agent pressure when run under nohup).
+_pull_one() {
+  local img="$1"
+  echo "Pulling ${img}"
+  sudo docker pull "${img}"
+  sudo docker image prune -f >/dev/null 2>&1 || true
+}
+
+_pull_one "${ENTERPRISE_RAG_IMAGE}"
+_pull_one "${ENTERPRISE_RAG_EVALS_IMAGE}"
+_pull_one "${LITELLM_IMAGE}"
 
 sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
   ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
@@ -117,6 +133,7 @@ for _ in $(seq 1 60); do
       LITELLM_IMAGE="${LITELLM_IMAGE}" \
       docker compose ps
     # Deploy readiness is /api/health only. Live /query smoke runs in CD (single query).
+    _write_status ok
     exit 0
   fi
   sleep 5
@@ -130,4 +147,4 @@ sudo ENTERPRISE_RAG_IMAGE="${ENTERPRISE_RAG_IMAGE}" \
   ENTERPRISE_RAG_EVALS_IMAGE="${ENTERPRISE_RAG_EVALS_IMAGE}" \
   LITELLM_IMAGE="${LITELLM_IMAGE}" \
   docker compose logs --tail=80 api evals nginx || true
-exit 1
+_fail
